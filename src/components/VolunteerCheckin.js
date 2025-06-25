@@ -329,13 +329,22 @@ const VolunteerCheckin = () => {
                 onChange={(e) => setFormData({...formData, organization: e.target.value})}
                 className="w-full p-4 text-lg border-2 border-gray-200 rounded-xl focus:border-emerald-500 focus:outline-none"
               />
-              <input
-                type="date"
-                placeholder="Date of Birth"
-                value={formData.dateOfBirth}
-                onChange={(e) => setFormData({...formData, dateOfBirth: e.target.value})}
-                className="w-full p-4 text-lg border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:outline-none"
-              />
+              <div className="relative">
+                <input
+                    type="date"
+                    id="dateOfBirth"
+                    value={formData.dateOfBirth}
+                    onChange={(e) => setFormData({...formData, dateOfBirth: e.target.value})}
+                    className="w-full p-4 text-lg border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:outline-none peer placeholder-transparent"
+                    placeholder=" "
+                />
+                <label 
+                    htmlFor="dateOfBirth"
+                    className="absolute text-sm text-gray-500 duration-300 transform -translate-y-4 scale-75 top-2 z-10 origin-[0] bg-white px-2 peer-focus:px-2 peer-focus:text-indigo-600 peer-placeholder-shown:scale-100 peer-placeholder-shown:-translate-y-1/2 peer-placeholder-shown:top-1/2 peer-focus:top-2 peer-focus:scale-75 peer-focus:-translate-y-4 left-3"
+                >
+                    Date of Birth
+                </label>
+            </div>
             </div>
 
             <div className="mb-6 p-4 bg-emerald-50 rounded-xl text-center">
