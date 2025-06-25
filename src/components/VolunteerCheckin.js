@@ -17,8 +17,9 @@ const VolunteerCheckin = () => {
     phone: '',
     city: '',
     organization: '',
-    age: ''
+    dateOfBirth: ''  // Changed from age
   });
+  
 
   // Force re-render when database changes
   const [, forceUpdate] = useState({});
@@ -329,11 +330,11 @@ const VolunteerCheckin = () => {
                 className="w-full p-4 text-lg border-2 border-gray-200 rounded-xl focus:border-emerald-500 focus:outline-none"
               />
               <input
-                type="number"
-                placeholder="Age"
-                value={formData.age}
-                onChange={(e) => setFormData({...formData, age: e.target.value})}
-                className="w-full p-4 text-lg border-2 border-gray-200 rounded-xl focus:border-emerald-500 focus:outline-none"
+                type="date"
+                placeholder="Date of Birth"
+                value={formData.dateOfBirth}
+                onChange={(e) => setFormData({...formData, dateOfBirth: e.target.value})}
+                className="w-full p-4 text-lg border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:outline-none"
               />
             </div>
 

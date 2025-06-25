@@ -57,7 +57,7 @@ class Database {
         phone: userData.phone,
         city: userData.city || '',
         organization: userData.organization || '',
-        age: userData.age
+        date_of_birth: userData.dateOfBirth  // Changed from age
       }])
       .select()
       .single();
