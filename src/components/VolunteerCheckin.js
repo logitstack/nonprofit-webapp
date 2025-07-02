@@ -17,7 +17,8 @@ const VolunteerCheckin = () => {
     phone: '',
     city: '',
     organization: '',
-    dateOfBirth: ''  // Changed from age
+    dateOfBirth: '',
+    profession: ''  // Add this line
   });
   
 
@@ -327,8 +328,24 @@ const VolunteerCheckin = () => {
                 placeholder="Organization (optional)"
                 value={formData.organization}
                 onChange={(e) => setFormData({...formData, organization: e.target.value})}
-                className="w-full p-4 text-lg border-2 border-gray-200 rounded-xl focus:border-emerald-500 focus:outline-none"
+                className="w-full p-4 text-lg border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:outline-none"
               />
+              <select
+                value={formData.profession}
+                onChange={(e) => setFormData({...formData, profession: e.target.value})}
+                className="w-full p-4 text-lg border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:outline-none"
+              >
+                <option value="">Select Profession</option>
+                <option value="IT">IT / Technology</option>
+                <option value="Medicine">Medicine / Healthcare</option>
+                <option value="Education">Education / Teaching</option>
+                <option value="Business">Business / Finance</option>
+                <option value="Engineering">Engineering</option>
+                <option value="Homemaker">Homemaker</option>
+                <option value="Retired">Retired</option>
+                <option value="Student">Student</option>
+                <option value="Other">Other</option>
+              </select>
               <div className="relative">
                 <input
                     type="date"
