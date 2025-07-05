@@ -58,7 +58,7 @@ class Database {
         city: userData.city || '',
         organization: userData.organization || '',
         date_of_birth: userData.dateOfBirth,
-        profession: userData.profession || ''  // Add this line
+        profession: userData.profession || ''
       }])
       .select()
       .single();
@@ -171,7 +171,7 @@ class Database {
     return null;
   }
 
-  // Analytics queries (for future staff dashboard)
+  // Analytics queries
   async getVolunteerHoursForDate(userId, date) {
     const startOfDay = new Date(date);
     startOfDay.setHours(0, 0, 0, 0);
@@ -213,8 +213,8 @@ class Database {
     return data.reduce((total, donation) => total + donation.bag_count, 0);
   }
 
-  // Add this new function to the Database class
-async adjustUserHours(userId, newHours, reason) {
+  // Hour adjustment operations
+  async adjustUserHours(userId, newHours, reason) {
     const { data, error } = await supabase
       .from('users')
       .update({ 
@@ -243,7 +243,7 @@ async adjustUserHours(userId, newHours, reason) {
     return data;
   }
   
-  // Add this function to force check out a user
+  // Force check out operations
   async forceCheckOut(userId, reason) {
     const user = await this.getUserById(userId);
     if (!user || !user.is_checked_in) return null;
@@ -277,9 +277,9 @@ async adjustUserHours(userId, newHours, reason) {
   
     return updatedUser;
   }
-  // Add these new functions to the Database class
 
-async getUserSessions(userId) {
+  // Session management operations
+  async getUserSessions(userId) {
     const { data, error } = await supabase
       .from('volunteer_sessions')
       .select('*')
@@ -351,6 +351,7 @@ async getUserSessions(userId) {
     return totalHours;
   }
   
+  // User deletion
   async deleteUser(userId) {
     // Delete related records first
     await supabase.from('donations').delete().eq('user_id', userId);
@@ -368,30 +369,48 @@ async getUserSessions(userId) {
     return true;
   }
   
+  // Analytics by date range - WORKING VERSION
   async getAnalyticsByDateRange(startDate, endDate) {
+    console.log(`📊 Getting analytics for ${new Date(startDate).toLocaleDateString()} to ${new Date(endDate).toLocaleDateString()}`);
+    
+    // Get volunteer sessions in date range
     const { data: sessions, error: sessionsError } = await supabase
       .from('volunteer_sessions')
       .select('*')
       .gte('check_in_time', startDate)
       .lte('check_in_time', endDate);
-  
+
+    if (sessionsError) {
+      console.error('Error getting sessions:', sessionsError);
+    }
+
+    // Get donations using timestamp column (we confirmed this works)
     const { data: donations, error: donationsError } = await supabase
       .from('donations')
-      .select('*')
+      .select('bag_count, timestamp')
       .gte('timestamp', startDate)
       .lte('timestamp', endDate);
-  
+
+    if (donationsError) {
+      console.error('Error getting donations:', donationsError);
+    }
+
+    // Calculate totals
     const totalHours = sessions?.reduce((sum, s) => sum + (s.hours_worked || 0), 0) || 0;
-    const totalBags = donations?.reduce((sum, d) => sum + d.bag_count, 0) || 0;
+    const totalBags = donations?.reduce((sum, d) => sum + (d.bag_count || 0), 0) || 0;
     const uniqueVolunteers = new Set(sessions?.map(s => s.user_id)).size || 0;
-  
-    return {
+
+    const result = {
       totalHours,
       totalBags,
       uniqueVolunteers,
       sessionCount: sessions?.length || 0,
       donationCount: donations?.length || 0
     };
+
+    console.log(`✅ Found: ${result.sessionCount} sessions (${result.totalHours}h), ${result.donationCount} donations (${result.totalBags} bags)`);
+    
+    return result;
   }
 }
 

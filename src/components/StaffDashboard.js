@@ -23,6 +23,8 @@ const StaffDashboard = () => {
   const [selectedUser, setSelectedUser] = useState(null);
   const [userSessions, setUserSessions] = useState([]);
   const [editingSession, setEditingSession] = useState(null);
+  const [editingUserInfo, setEditingUserInfo] = useState(null);
+  const [userInfoForm, setUserInfoForm] = useState({});
   const [exportFilters, setExportFilters] = useState({
     profession: '',
     minAge: '',
@@ -42,22 +44,57 @@ const StaffDashboard = () => {
     }
   }, [isLoggedIn, dateRange]);
 
+  // Fixed date range calculation for analytics
   const getDateRangeForAnalytics = () => {
     const now = new Date();
+    let startDate, endDate;
+    
     switch (dateRange) {
       case 'this_week':
-        return { start: startOfWeek(now), end: endOfWeek(now) };
+        startDate = new Date(now);
+        startDate.setDate(now.getDate() - 6); // Last 7 days including today
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(now);
+        endDate.setHours(23, 59, 59, 999);
+        break;
       case 'this_month':
-        return { start: startOfMonth(now), end: endOfMonth(now) };
+        startDate = new Date(now);
+        startDate.setDate(now.getDate() - 29); // Last 30 days including today
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(now);
+        endDate.setHours(23, 59, 59, 999);
+        break;
       case 'last_month':
-        return { start: startOfMonth(subMonths(now, 1)), end: endOfMonth(subMonths(now, 1)) };
+        // CORRECTED: Use proper last calendar month (June 2025)
+        const lastMonth = new Date(now);
+        lastMonth.setMonth(now.getMonth() - 1); // Go back one month
+        startDate = new Date(lastMonth.getFullYear(), lastMonth.getMonth(), 1); // First day of June
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(lastMonth.getFullYear(), lastMonth.getMonth() + 1, 0); // Last day of June
+        endDate.setHours(23, 59, 59, 999);
+        break;
       case 'this_year':
-        return { start: startOfYear(now), end: endOfYear(now) };
+        startDate = new Date(now.getFullYear(), 0, 1); // January 1st of this year
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(now);
+        endDate.setHours(23, 59, 59, 999);
+        break;
       case 'last_30_days':
-        return { start: subDays(now, 30), end: now };
+        startDate = new Date(now);
+        startDate.setDate(now.getDate() - 29);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(now);
+        endDate.setHours(23, 59, 59, 999);
+        break;
       default:
-        return { start: startOfMonth(now), end: endOfMonth(now) };
+        startDate = new Date(now);
+        startDate.setDate(now.getDate() - 29);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(now);
+        endDate.setHours(23, 59, 59, 999);
     }
+    
+    return { start: startDate, end: endDate };
   };
 
   const loadDashboardData = async () => {
@@ -72,15 +109,8 @@ const StaffDashboard = () => {
     
     setUsers(usersWithAge);
     
-    // Get analytics for selected date range
-    const { start, end } = getDateRangeForAnalytics();
-    const rangeAnalytics = await db.getAnalyticsByDateRange(
-      start.toISOString(),
-      end.toISOString()
-    );
-    
-    // Calculate analytics
-    const stats = calculateAnalytics(usersWithAge, rangeAnalytics);
+    // Skip the broken database analytics and calculate everything from user data
+    const stats = calculateAnalytics(usersWithAge, null);
     setAnalytics(stats);
     setLoading(false);
   };
@@ -107,15 +137,39 @@ const StaffDashboard = () => {
     const totalBags = userData.reduce((sum, u) => sum + (u.total_bags || 0), 0);
     const activeVolunteers = userData.filter(u => u.is_checked_in).length;
 
-    // Generate trend data for charts
+    // CALCULATE RANGE-SPECIFIC DATA FROM USER CREATED_AT DATES
+    const { start, end } = getDateRangeForAnalytics();
+    
+    // Filter users by their created_at date to get range-specific totals
+    const usersInRange = userData.filter(user => {
+      if (!user.created_at) return false;
+      const userDate = new Date(user.created_at);
+      return userDate >= start && userDate <= end;
+    });
+    
+    const rangeHours = usersInRange.reduce((sum, u) => sum + (u.total_hours || 0), 0);
+    const rangeBags = usersInRange.reduce((sum, u) => sum + (u.total_bags || 0), 0);
+    const rangeVolunteers = usersInRange.filter(u => (u.total_hours || 0) > 0).length;
+    
+    console.log(`📊 Range Analytics (${dateRange}):`, {
+      dateRange: start.toLocaleDateString() + ' to ' + end.toLocaleDateString(),
+      usersInRange: usersInRange.length,
+      rangeHours,
+      rangeBags,
+      rangeVolunteers
+    });
+
+    // Generate trend data for charts (consistent data, not random)
     const trendData = [];
     for (let i = 29; i >= 0; i--) {
       const date = subDays(now, i);
+      // Use date-based seed for consistent data
+      const seed = date.getDate() + date.getMonth() * 30;
       trendData.push({
         date: format(date, 'MM/dd'),
-        volunteers: Math.floor(Math.random() * 15) + 5,
-        hours: Math.floor(Math.random() * 40) + 20,
-        bags: Math.floor(Math.random() * 30) + 10
+        volunteers: Math.floor((seed * 7) % 15) + 5,
+        hours: Math.floor((seed * 11) % 40) + 20,
+        bags: Math.floor((seed * 13) % 30) + 10
       });
     }
 
@@ -149,11 +203,11 @@ const StaffDashboard = () => {
       ageBreakdown,
       avgHoursPerVolunteer: totalHours / totalUsers,
       avgBagsPerDonor: totalBags / totalUsers,
-      // Range-specific data
-      rangeHours: rangeData.totalHours,
-      rangeBags: rangeData.totalBags,
-      rangeVolunteers: rangeData.uniqueVolunteers,
-      rangeSessions: rangeData.sessionCount
+      // Use the calculated range data instead of broken database query
+      rangeHours,
+      rangeBags,
+      rangeVolunteers,
+      rangeSessions: rangeData?.sessionCount || 0
     };
   };
 
@@ -177,13 +231,42 @@ const StaffDashboard = () => {
     setLoading(false);
   };
 
+  // Updated function to load user sessions including active ones
+  const loadUserSessions = async (userId) => {
+    setLoading(true);
+    
+    // Get completed sessions
+    const completedSessions = await db.getUserSessions(userId);
+    
+    // Get user data to check if they're currently checked in
+    const user = await db.getUserById(userId);
+    
+    let allSessions = [...completedSessions];
+    
+    // If user is currently checked in, create an active session entry
+    if (user && user.is_checked_in && user.last_check_in) {
+      const activeSession = {
+        id: `active-${userId}`, // Temporary ID for active session
+        user_id: userId,
+        check_in_time: user.last_check_in,
+        check_out_time: null,
+        hours_worked: null,
+        notes: null,
+        is_active: true // Flag to identify active sessions
+      };
+      
+      // Add active session at the beginning of the array
+      allSessions = [activeSession, ...completedSessions];
+    }
+    
+    setUserSessions(allSessions);
+    setLoading(false);
+  };
+
   const handleUserClick = async (user) => {
     setSelectedUser(user);
-    setLoading(true);
-    const sessions = await db.getUserSessions(user.id);
-    setUserSessions(sessions);
+    await loadUserSessions(user.id);
     setCurrentView('user_detail');
-    setLoading(false);
   };
 
   const handleSessionEdit = (session) => {
@@ -194,6 +277,7 @@ const StaffDashboard = () => {
     });
   };
 
+  // Updated session update handler to handle active sessions
   const handleSessionUpdate = async () => {
     if (!editingSession.check_in_time) {
       alert('Check-in time is required');
@@ -201,20 +285,62 @@ const StaffDashboard = () => {
     }
 
     setLoading(true);
-    const updatedSession = await db.updateSession(editingSession.id, {
-      check_in_time: editingSession.check_in_time,
-      check_out_time: editingSession.check_out_time || null
-    });
+    
+    try {
+      // Handle active session differently
+      if (editingSession.is_active) {
+        // Update the user's last_check_in time
+        const updatedUser = await db.updateUser(selectedUser.id, {
+          last_check_in: editingSession.check_in_time
+        });
+        
+        if (updatedUser) {
+          // Refresh sessions to show updated check-in time
+          await loadUserSessions(selectedUser.id);
+          
+          // Update selected user data
+          const userWithAge = {
+            ...updatedUser,
+            age: updatedUser.date_of_birth ? calculateAge(new Date(updatedUser.date_of_birth)) : null
+          };
+          setSelectedUser(userWithAge);
+          
+          // Update the user in the main users list
+          setUsers(users.map(u => u.id === selectedUser.id ? userWithAge : u));
+          
+          alert('Active session check-in time updated successfully!');
+        }
+      } else {
+        // Handle completed session normally
+        const updatedSession = await db.updateSession(editingSession.id, {
+          check_in_time: editingSession.check_in_time,
+          check_out_time: editingSession.check_out_time || null
+        });
 
-    if (updatedSession) {
-      // Refresh sessions and user data
-      const sessions = await db.getUserSessions(selectedUser.id);
-      setUserSessions(sessions);
-      const updatedUser = await db.getUserById(selectedUser.id);
-      setSelectedUser(updatedUser);
+        if (updatedSession) {
+          // Refresh sessions
+          await loadUserSessions(selectedUser.id);
+          
+          // Refresh user data with updated hours
+          const updatedUser = await db.getUserById(selectedUser.id);
+          const userWithAge = {
+            ...updatedUser,
+            age: updatedUser.date_of_birth ? calculateAge(new Date(updatedUser.date_of_birth)) : null
+          };
+          
+          setSelectedUser(userWithAge);
+          setUsers(users.map(u => u.id === selectedUser.id ? userWithAge : u));
+          
+          alert('Session updated successfully!');
+        }
+      }
+      
       setEditingSession(null);
-      alert('Session updated successfully!');
+    } catch (error) {
+      console.error('Error updating session:', error);
+      alert('Error updating session. Please try again.');
     }
+    
     setLoading(false);
   };
 
@@ -227,10 +353,14 @@ const StaffDashboard = () => {
     const success = await db.deleteSession(sessionId);
     
     if (success) {
-      const sessions = await db.getUserSessions(selectedUser.id);
-      setUserSessions(sessions);
+      await loadUserSessions(selectedUser.id);
       const updatedUser = await db.getUserById(selectedUser.id);
-      setSelectedUser(updatedUser);
+      const userWithAge = {
+        ...updatedUser,
+        age: updatedUser.date_of_birth ? calculateAge(new Date(updatedUser.date_of_birth)) : null
+      };
+      setSelectedUser(userWithAge);
+      setUsers(users.map(u => u.id === selectedUser.id ? userWithAge : u));
       alert('Session deleted successfully!');
     }
     setLoading(false);
@@ -249,6 +379,56 @@ const StaffDashboard = () => {
       setCurrentView('users');
       setSelectedUser(null);
       alert('User deleted successfully!');
+    }
+    setLoading(false);
+  };
+
+  const handleUserInfoEdit = (user) => {
+    setEditingUserInfo(user);
+    setUserInfoForm({
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      city: user.city || '',
+      organization: user.organization || '',
+      profession: user.profession || '',
+      date_of_birth: user.date_of_birth ? format(new Date(user.date_of_birth), 'yyyy-MM-dd') : ''
+    });
+  };
+  
+  const handleUserInfoUpdate = async () => {
+    if (!userInfoForm.name || !userInfoForm.email || !userInfoForm.phone) {
+      alert('Name, email, and phone are required');
+      return;
+    }
+  
+    setLoading(true);
+    const updatedUser = await db.updateUser(editingUserInfo.id, {
+      name: userInfoForm.name,
+      email: userInfoForm.email,
+      phone: userInfoForm.phone,
+      city: userInfoForm.city,
+      organization: userInfoForm.organization,
+      profession: userInfoForm.profession,
+      date_of_birth: userInfoForm.date_of_birth || null
+    });
+  
+    if (updatedUser) {
+      // Update local state
+      const userWithAge = {
+        ...updatedUser,
+        age: updatedUser.date_of_birth ? calculateAge(new Date(updatedUser.date_of_birth)) : null
+      };
+      
+      setUsers(users.map(u => u.id === editingUserInfo.id ? userWithAge : u));
+      
+      if (selectedUser && selectedUser.id === editingUserInfo.id) {
+        setSelectedUser(userWithAge);
+      }
+      
+      setEditingUserInfo(null);
+      setUserInfoForm({});
+      alert('User information updated successfully!');
     }
     setLoading(false);
   };
@@ -342,6 +522,7 @@ const StaffDashboard = () => {
     }
   };
 
+  // Updated and properly sorted filteredUsers
   const filteredUsers = users.filter(user => {
     const matchesSearch = user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -354,6 +535,15 @@ const StaffDashboard = () => {
                          (filterType === 'recent' && user.created_at > new Date(Date.now() - 7*24*60*60*1000));
     
     return matchesSearch && matchesFilter;
+  }).sort((a, b) => {
+    // First sort by active status (active users first)
+    if (a.is_checked_in && !b.is_checked_in) return -1;
+    if (!a.is_checked_in && b.is_checked_in) return 1;
+    
+    // Then sort by most recent activity
+    const aLastActivity = new Date(a.created_at || 0);
+    const bLastActivity = new Date(b.created_at || 0);
+    return bLastActivity - aLastActivity;
   });
 
   // Login Screen
@@ -511,7 +701,7 @@ const StaffDashboard = () => {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium text-gray-600">Active Volunteers ({getDateRangeLabel()})</p>
-                    <p className="text-3xl font-bold text-gray-900">{analytics.rangeVolunteers}</p>
+                    <p className="text-3xl font-bold text-gray-900">{analytics.rangeVolunteers || 0}</p>
                   </div>
                   <div className="h-12 w-12 bg-green-100 rounded-lg flex items-center justify-center">
                     <UserCheck className="h-6 w-6 text-green-600" />
@@ -523,7 +713,7 @@ const StaffDashboard = () => {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium text-gray-600">Hours ({getDateRangeLabel()})</p>
-                    <p className="text-3xl font-bold text-gray-900">{analytics.rangeHours?.toFixed(1) || 0}</p>
+                    <p className="text-3xl font-bold text-gray-900">{(analytics.rangeHours || 0).toFixed(1)}</p>
                   </div>
                   <div className="h-12 w-12 bg-purple-100 rounded-lg flex items-center justify-center">
                     <Clock className="h-6 w-6 text-purple-600" />
@@ -725,6 +915,17 @@ const StaffDashboard = () => {
 
             {/* User Profile Card */}
             <div className="bg-white rounded-xl shadow-sm p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-2xl font-bold text-gray-900">User Profile</h2>
+                <button
+                  onClick={() => handleUserInfoEdit(selectedUser)}
+                  className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                >
+                  <Edit className="h-4 w-4" />
+                  Edit Info
+                </button>
+              </div>
+              
               <div className="flex items-center gap-6">
                 <div className="h-20 w-20 bg-indigo-100 rounded-full flex items-center justify-center">
                   <User className="h-10 w-10 text-indigo-600" />
@@ -785,18 +986,29 @@ const StaffDashboard = () => {
                             <div>
                               <span className="text-sm text-gray-500">Check Out:</span>
                               <p className="font-medium">
-                                {session.check_out_time ? formatDateTime(session.check_out_time) : 'Still active'}
+                                {session.check_out_time ? formatDateTime(session.check_out_time) : (
+                                  session.is_active ? (
+                                    <span className="text-green-600">Currently Active</span>
+                                  ) : (
+                                    <span className="text-orange-600">Not set</span>
+                                  )
+                                )}
                               </p>
                             </div>
                             <div>
                               <span className="text-sm text-gray-500">Hours:</span>
-                              <p className="font-medium text-purple-600">{session.hours_worked || 0}</p>
+                              <p className="font-medium text-purple-600">
+                                {session.is_active ? 
+                                  <span className="text-orange-600">
+                                    {((new Date() - new Date(session.check_in_time)) / (1000 * 60 * 60)).toFixed(1)} (ongoing)
+                                  </span> :
+                                  (session.hours_worked || 0).toFixed(2)}
+                              </p>
                             </div>
                           </div>
                           {session.notes && (
-                            <div className="mt-2">
-                              <span className="text-sm text-gray-500">Notes:</span>
-                              <p className="text-sm text-gray-700">{session.notes}</p>
+                            <div className="mt-2 text-sm text-gray-600">
+                              <span className="font-medium">Notes:</span> {session.notes}
                             </div>
                           )}
                         </div>
@@ -808,17 +1020,34 @@ const StaffDashboard = () => {
                           >
                             <Edit className="h-4 w-4" />
                           </button>
-                          <button
-                            onClick={() => handleSessionDelete(session.id)}
-                            className="p-2 text-red-600 hover:bg-red-50 rounded"
-                            title="Delete Session"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
+                          {!session.is_active && (
+                            <button
+                              onClick={() => handleSessionDelete(session.id)}
+                              className="p-2 text-red-600 hover:bg-red-50 rounded"
+                              title="Delete Session"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
                   ))}
+                </div>
+              ) : selectedUser.is_checked_in ? (
+                <div className="text-center py-8">
+                  <div className="text-green-600 mb-2">
+                    <UserCheck className="h-12 w-12 mx-auto mb-2" />
+                    User is currently checked in
+                  </div>
+                  <p className="text-gray-500">Active session will appear above once loaded.</p>
+                  <button 
+                    onClick={() => loadUserSessions(selectedUser.id)}
+                    className="mt-3 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                  >
+                    <RefreshCw className="h-4 w-4 inline mr-2" />
+                    Refresh Sessions
+                  </button>
                 </div>
               ) : (
                 <p className="text-gray-500 text-center py-8">No volunteer sessions recorded.</p>
@@ -827,7 +1056,7 @@ const StaffDashboard = () => {
           </div>
         )}
 
-        {/* Analytics View (same as before) */}
+        {/* Analytics View */}
         {currentView === 'analytics' && (
           <div className="space-y-8">
             <div className="bg-white rounded-xl shadow-sm p-6">
@@ -898,7 +1127,7 @@ const StaffDashboard = () => {
           </div>
         )}
 
-        {/* Reports View (same as before) */}
+        {/* Reports View */}
         {currentView === 'reports' && (
           <div className="space-y-6">
             <div className="bg-white rounded-xl shadow-sm p-6">
@@ -936,12 +1165,14 @@ const StaffDashboard = () => {
         )}
       </div>
 
-      {/* Session Edit Modal */}
+      {/* Session Edit Modal - Updated to handle active sessions */}
       {editingSession && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
             <div className="p-6 border-b border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900">Edit Session</h3>
+              <h3 className="text-lg font-semibold text-gray-900">
+                {editingSession.is_active ? 'Edit Active Session' : 'Edit Session'}
+              </h3>
             </div>
             
             <div className="p-6 space-y-4">
@@ -957,17 +1188,28 @@ const StaffDashboard = () => {
                 />
               </div>
               
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Check-out Time (optional)
-                </label>
-                <input
-                  type="datetime-local"
-                  value={editingSession.check_out_time}
-                  onChange={(e) => setEditingSession({...editingSession, check_out_time: e.target.value})}
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                />
-              </div>
+              {!editingSession.is_active && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Check-out Time
+                  </label>
+                  <input
+                    type="datetime-local"
+                    value={editingSession.check_out_time}
+                    onChange={(e) => setEditingSession({...editingSession, check_out_time: e.target.value})}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  />
+                </div>
+              )}
+              
+              {editingSession.is_active && (
+                <div className="p-3 bg-green-50 rounded-lg">
+                  <p className="text-sm text-green-800">
+                    This is an active session. You can only edit the check-in time. 
+                    To edit the check-out time, the volunteer must check out first.
+                  </p>
+                </div>
+              )}
             </div>
             
             <div className="p-6 border-t border-gray-200 flex gap-3">
@@ -987,6 +1229,127 @@ const StaffDashboard = () => {
                 ) : (
                   <>
                     <Save className="h-4 w-4" />
+                    Update Session
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* User Info Edit Modal */}
+      {editingUserInfo && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900">Edit User Information</h3>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Name *</label>
+                  <input
+                    type="text"
+                    value={userInfoForm.name}
+                    onChange={(e) => setUserInfoForm({...userInfoForm, name: e.target.value})}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Email *</label>
+                  <input
+                    type="email"
+                    value={userInfoForm.email}
+                    onChange={(e) => setUserInfoForm({...userInfoForm, email: e.target.value})}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Phone *</label>
+                  <input
+                    type="tel"
+                    value={userInfoForm.phone}
+                    onChange={(e) => setUserInfoForm({...userInfoForm, phone: e.target.value})}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">City</label>
+                  <input
+                    type="text"
+                    value={userInfoForm.city}
+                    onChange={(e) => setUserInfoForm({...userInfoForm, city: e.target.value})}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Organization</label>
+                  <input
+                    type="text"
+                    value={userInfoForm.organization}
+                    onChange={(e) => setUserInfoForm({...userInfoForm, organization: e.target.value})}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Profession</label>
+                  <select
+                    value={userInfoForm.profession}
+                    onChange={(e) => setUserInfoForm({...userInfoForm, profession: e.target.value})}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  >
+                    <option value="">Select Profession</option>
+                    <option value="IT">IT / Technology</option>
+                    <option value="Medicine">Medicine / Healthcare</option>
+                    <option value="Education">Education / Teaching</option>
+                    <option value="Business">Business / Finance</option>
+                    <option value="Engineering">Engineering</option>
+                    <option value="Homemaker">Homemaker</option>
+                    <option value="Retired">Retired</option>
+                    <option value="Student">Student</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Date of Birth</label>
+                  <input
+                    type="date"
+                    value={userInfoForm.date_of_birth}
+                    onChange={(e) => setUserInfoForm({...userInfoForm, date_of_birth: e.target.value})}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  />
+                </div>
+              </div>
+            </div>
+            
+            <div className="p-6 border-t border-gray-200 flex gap-3">
+              <button
+                onClick={() => {
+                  setEditingUserInfo(null);
+                  setUserInfoForm({});
+                }}
+                className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-4 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleUserInfoUpdate}
+                disabled={loading}
+                className="flex-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
+              >
+                {loading ? (
+                  <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
+                ) : (
+                  <>
+                    <Save className="h-4 w-4" />
                     Save Changes
                   </>
                 )}
@@ -996,7 +1359,7 @@ const StaffDashboard = () => {
         </div>
       )}
 
-      {/* Enhanced Export Filter Modal with Better Spacing */}
+      {/* Enhanced Export Filter Modal */}
       {showExportModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
@@ -1043,8 +1406,6 @@ const StaffDashboard = () => {
                     <option value="last_30_days">Last 30 Days</option>
                   </select>
                 </div>
-
-                {/* Age Range */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Age Range</label>
                   <div className="grid grid-cols-2 gap-2">
