@@ -369,10 +369,25 @@ class Database {
     return true;
   }
   
-  // Analytics by date range - WORKING VERSION
+  // Analytics by date range - DEBUG VERSION to see what's happening
   async getAnalyticsByDateRange(startDate, endDate) {
-    console.log(`📊 Getting analytics for ${new Date(startDate).toLocaleDateString()} to ${new Date(endDate).toLocaleDateString()}`);
+    console.log(`🔍 DEBUGGING: ${new Date(startDate).toLocaleDateString()} to ${new Date(endDate).toLocaleDateString()}`);
+    console.log(`📅 Exact range: ${startDate} to ${endDate}`);
     
+    // Get donations in date range with debugging
+    const { data: donations, error: donationsError } = await supabase
+      .from('donations')
+      .select('bag_count, timestamp')
+      .gte('timestamp', startDate)
+      .lte('timestamp', endDate);
+
+    console.log(`💰 DONATIONS FOUND: ${donations?.length || 0}`);
+    donations?.forEach((donation, i) => {
+      if (i < 10) { // Show first 10
+        console.log(`  ${i+1}. ${new Date(donation.timestamp).toLocaleDateString()} - ${donation.bag_count} bags`);
+      }
+    });
+
     // Get volunteer sessions in date range
     const { data: sessions, error: sessionsError } = await supabase
       .from('volunteer_sessions')
@@ -380,20 +395,12 @@ class Database {
       .gte('check_in_time', startDate)
       .lte('check_in_time', endDate);
 
-    if (sessionsError) {
-      console.error('Error getting sessions:', sessionsError);
-    }
-
-    // Get donations using timestamp column (we confirmed this works)
-    const { data: donations, error: donationsError } = await supabase
-      .from('donations')
-      .select('bag_count, timestamp')
-      .gte('timestamp', startDate)
-      .lte('timestamp', endDate);
-
-    if (donationsError) {
-      console.error('Error getting donations:', donationsError);
-    }
+    console.log(`⏰ SESSIONS FOUND: ${sessions?.length || 0}`);
+    sessions?.forEach((session, i) => {
+      if (i < 5) { // Show first 5
+        console.log(`  ${i+1}. ${new Date(session.check_in_time).toLocaleDateString()} - ${session.hours_worked}h`);
+      }
+    });
 
     // Calculate totals
     const totalHours = sessions?.reduce((sum, s) => sum + (s.hours_worked || 0), 0) || 0;
@@ -408,7 +415,7 @@ class Database {
       donationCount: donations?.length || 0
     };
 
-    console.log(`✅ Found: ${result.sessionCount} sessions (${result.totalHours}h), ${result.donationCount} donations (${result.totalBags} bags)`);
+    console.log(`📊 TOTALS: ${result.donationCount} donations = ${result.totalBags} bags, ${result.sessionCount} sessions = ${result.totalHours}h`);
     
     return result;
   }

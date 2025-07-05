@@ -58,8 +58,8 @@ const StaffDashboard = () => {
         endDate.setHours(23, 59, 59, 999);
         break;
       case 'this_month':
-        startDate = new Date(now);
-        startDate.setDate(now.getDate() - 29); // Last 30 days including today
+        // FIXED: Use current calendar month dynamically
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1); // First day of current month
         startDate.setHours(0, 0, 0, 0);
         endDate = new Date(now);
         endDate.setHours(23, 59, 59, 999);
@@ -109,8 +109,17 @@ const StaffDashboard = () => {
     
     setUsers(usersWithAge);
     
-    // Skip the broken database analytics and calculate everything from user data
-    const stats = calculateAnalytics(usersWithAge, null);
+    // Get analytics for selected date range using the SAME method as Analytics tab
+    const { start, end } = getDateRangeForAnalytics();
+    
+    const rangeAnalytics = await db.getAnalyticsByDateRange(
+      start.toISOString(),
+      end.toISOString()
+    );
+    
+    // Calculate analytics using the database results
+    const stats = calculateAnalytics(usersWithAge, rangeAnalytics);
+    
     setAnalytics(stats);
     setLoading(false);
   };
@@ -131,33 +140,11 @@ const StaffDashboard = () => {
   const calculateAnalytics = (userData, rangeData) => {
     const now = new Date();
 
-    // Basic stats
+    // Basic stats (all-time totals)
     const totalUsers = userData.length;
     const totalHours = userData.reduce((sum, u) => sum + (u.total_hours || 0), 0);
     const totalBags = userData.reduce((sum, u) => sum + (u.total_bags || 0), 0);
     const activeVolunteers = userData.filter(u => u.is_checked_in).length;
-
-    // CALCULATE RANGE-SPECIFIC DATA FROM USER CREATED_AT DATES
-    const { start, end } = getDateRangeForAnalytics();
-    
-    // Filter users by their created_at date to get range-specific totals
-    const usersInRange = userData.filter(user => {
-      if (!user.created_at) return false;
-      const userDate = new Date(user.created_at);
-      return userDate >= start && userDate <= end;
-    });
-    
-    const rangeHours = usersInRange.reduce((sum, u) => sum + (u.total_hours || 0), 0);
-    const rangeBags = usersInRange.reduce((sum, u) => sum + (u.total_bags || 0), 0);
-    const rangeVolunteers = usersInRange.filter(u => (u.total_hours || 0) > 0).length;
-    
-    console.log(`📊 Range Analytics (${dateRange}):`, {
-      dateRange: start.toLocaleDateString() + ' to ' + end.toLocaleDateString(),
-      usersInRange: usersInRange.length,
-      rangeHours,
-      rangeBags,
-      rangeVolunteers
-    });
 
     // Generate trend data for charts (consistent data, not random)
     const trendData = [];
@@ -203,10 +190,10 @@ const StaffDashboard = () => {
       ageBreakdown,
       avgHoursPerVolunteer: totalHours / totalUsers,
       avgBagsPerDonor: totalBags / totalUsers,
-      // Use the calculated range data instead of broken database query
-      rangeHours,
-      rangeBags,
-      rangeVolunteers,
+      // Use the database range data consistently
+      rangeHours: rangeData?.totalHours || 0,
+      rangeBags: rangeData?.totalBags || 0,
+      rangeVolunteers: rangeData?.uniqueVolunteers || 0,
       rangeSessions: rangeData?.sessionCount || 0
     };
   };
