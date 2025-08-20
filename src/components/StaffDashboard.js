@@ -3,13 +3,17 @@ import {
   Users, Package, Clock, TrendingUp, Search, Filter, Download, 
   Calendar, BarChart3, PieChart, UserCheck, Gift, Eye, Edit,
   LogOut, Home, Settings, FileText, ChevronRight, RefreshCw, X, Save,
-  ArrowLeft, Trash2, User
+  ArrowLeft, Trash2, User, Copy, CheckCircle, ExternalLink, Globe, CalendarDays
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { format, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, subMonths } from 'date-fns';
 import { db } from '../utils/database';
 
 const StaffDashboard = () => {
+  const [sessionStartTime, setSessionStartTime] = useState(null);
+  const SESSION_TIMEOUT = 60 * 60 * 1000; // 1 hour in milliseconds
+  const [loginAttempts, setLoginAttempts] = useState(0);
+  const [loginCooldown, setLoginCooldown] = useState(false);
   const [currentView, setCurrentView] = useState('dashboard');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
@@ -17,7 +21,6 @@ const StaffDashboard = () => {
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState('all');
-  const [dateRange, setDateRange] = useState('this_month');
   const [users, setUsers] = useState([]);
   const [analytics, setAnalytics] = useState({});
   const [selectedUser, setSelectedUser] = useState(null);
@@ -36,45 +39,179 @@ const StaffDashboard = () => {
     dateRange: 'all_time'
   });
   const [showExportModal, setShowExportModal] = useState(false);
-
-  // Load data on component mount
-  useEffect(() => {
-    if (isLoggedIn) {
-      loadDashboardData();
+  
+  // Settings page state
+  const [autoCheckoutSettings, setAutoCheckoutSettings] = useState({
+    enabled: true,
+    timezone: 'America/Chicago',
+    schedule: {
+      monday: { enabled: true, startTime: '09:00', endTime: '18:00' },
+      tuesday: { enabled: true, startTime: '09:00', endTime: '18:00' },
+      wednesday: { enabled: true, startTime: '09:00', endTime: '18:00' },
+      thursday: { enabled: true, startTime: '09:00', endTime: '18:00' },
+      friday: { enabled: true, startTime: '09:00', endTime: '18:00' },
+      saturday: { enabled: false, startTime: '09:00', endTime: '18:00' },
+      sunday: { enabled: false, startTime: '09:00', endTime: '18:00' }
     }
-  }, [isLoggedIn, dateRange]);
+  });
+  const [showSaveConfirmation, setShowSaveConfirmation] = useState(false);
+  const [registrationLinkCopied, setRegistrationLinkCopied] = useState(false);
 
-  // Fixed date range calculation for analytics
+  // Enhanced dashboard filters
+  const [customDateRange, setCustomDateRange] = useState({
+    startDate: format(new Date(), 'yyyy-MM-dd'),
+    endDate: format(new Date(), 'yyyy-MM-dd')
+  });
+  const [dashboardDateType, setDashboardDateType] = useState('preset');
+  const [presetDateRange, setPresetDateRange] = useState('this_month');
+
+  // Enhanced user filters
+  const [userFilters, setUserFilters] = useState({
+    name: '',
+    email: '',
+    organization: '',
+    profession: '',
+    city: '',
+    minAge: '',
+    maxAge: '',
+    minHours: '',
+    maxHours: '',
+    minBags: '',
+    maxBags: '',
+    status: 'all'
+  });
+
+  // Reports state
+  const [reportDateRange, setReportDateRange] = useState({
+    startDate: format(subDays(new Date(), 30), 'yyyy-MM-dd'),
+    endDate: format(new Date(), 'yyyy-MM-dd')
+  });
+
+  // Load data on component mount and track session
+useEffect(() => {
+  if (isLoggedIn) {
+    loadDashboardData();
+    loadAutoCheckoutSettings();
+    setSessionStartTime(Date.now()); // Track when session started
+  }
+}, [isLoggedIn, dashboardDateType, presetDateRange, customDateRange]);
+
+// Add new useEffect for session timeout checking
+useEffect(() => {
+  if (isLoggedIn && sessionStartTime) {
+    // Check session validity every minute
+    const sessionCheck = setInterval(() => {
+      if (Date.now() - sessionStartTime > SESSION_TIMEOUT) {
+        alert('Session expired. Please log in again.');
+        setIsLoggedIn(false);
+        setCurrentUser(null);
+        setSessionStartTime(null);
+      }
+    }, 60000); // Check every minute
+    
+    return () => clearInterval(sessionCheck);
+  }
+}, [isLoggedIn, sessionStartTime]);
+
+  const loadAutoCheckoutSettings = async () => {
+    try {
+      const settings = await db.getAutoCheckoutSettings();
+      // Ensure settings has the proper structure with defaults
+      const defaultSettings = {
+        enabled: true,
+        timezone: 'America/Chicago',
+        schedule: {
+          monday: { enabled: true, startTime: '09:00', endTime: '18:00' },
+          tuesday: { enabled: true, startTime: '09:00', endTime: '18:00' },
+          wednesday: { enabled: true, startTime: '09:00', endTime: '18:00' },
+          thursday: { enabled: true, startTime: '09:00', endTime: '18:00' },
+          friday: { enabled: true, startTime: '09:00', endTime: '18:00' },
+          saturday: { enabled: false, startTime: '09:00', endTime: '18:00' },
+          sunday: { enabled: false, startTime: '09:00', endTime: '18:00' }
+        }
+      };
+      
+      // Merge with defaults to ensure all properties exist
+      const mergedSettings = {
+        ...defaultSettings,
+        ...settings,
+        schedule: {
+          ...defaultSettings.schedule,
+          ...(settings?.schedule || {})
+        }
+      };
+      
+      setAutoCheckoutSettings(mergedSettings);
+    } catch (error) {
+      console.error('Error loading auto-checkout settings:', error);
+      // Use default settings on error
+      setAutoCheckoutSettings({
+        enabled: true,
+        timezone: 'America/Chicago',
+        schedule: {
+          monday: { enabled: true, startTime: '09:00', endTime: '18:00' },
+          tuesday: { enabled: true, startTime: '09:00', endTime: '18:00' },
+          wednesday: { enabled: true, startTime: '09:00', endTime: '18:00' },
+          thursday: { enabled: true, startTime: '09:00', endTime: '18:00' },
+          friday: { enabled: true, startTime: '09:00', endTime: '18:00' },
+          saturday: { enabled: false, startTime: '09:00', endTime: '18:00' },
+          sunday: { enabled: false, startTime: '09:00', endTime: '18:00' }
+        }
+      });
+    }
+  };
+
+  // Enhanced date range calculation for dashboard
   const getDateRangeForAnalytics = () => {
+    if (dashboardDateType === 'custom') {
+      const startDate = new Date(customDateRange.startDate);
+      startDate.setHours(0, 0, 0, 0);
+      const endDate = new Date(customDateRange.endDate);
+      endDate.setHours(23, 59, 59, 999);
+      return { start: startDate, end: endDate };
+    }
+
     const now = new Date();
     let startDate, endDate;
     
-    switch (dateRange) {
+    switch (presetDateRange) {
+      case 'today':
+        startDate = new Date(now);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(now);
+        endDate.setHours(23, 59, 59, 999);
+        break;
+      case 'yesterday':
+        startDate = new Date(now);
+        startDate.setDate(now.getDate() - 1);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(now);
+        endDate.setDate(now.getDate() - 1);
+        endDate.setHours(23, 59, 59, 999);
+        break;
       case 'this_week':
         startDate = new Date(now);
-        startDate.setDate(now.getDate() - 6); // Last 7 days including today
+        startDate.setDate(now.getDate() - 6);
         startDate.setHours(0, 0, 0, 0);
         endDate = new Date(now);
         endDate.setHours(23, 59, 59, 999);
         break;
       case 'this_month':
-        // FIXED: Use current calendar month dynamically
-        startDate = new Date(now.getFullYear(), now.getMonth(), 1); // First day of current month
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
         startDate.setHours(0, 0, 0, 0);
         endDate = new Date(now);
         endDate.setHours(23, 59, 59, 999);
         break;
       case 'last_month':
-        // CORRECTED: Use proper last calendar month (June 2025)
         const lastMonth = new Date(now);
-        lastMonth.setMonth(now.getMonth() - 1); // Go back one month
-        startDate = new Date(lastMonth.getFullYear(), lastMonth.getMonth(), 1); // First day of June
+        lastMonth.setMonth(now.getMonth() - 1);
+        startDate = new Date(lastMonth.getFullYear(), lastMonth.getMonth(), 1);
         startDate.setHours(0, 0, 0, 0);
-        endDate = new Date(lastMonth.getFullYear(), lastMonth.getMonth() + 1, 0); // Last day of June
+        endDate = new Date(lastMonth.getFullYear(), lastMonth.getMonth() + 1, 0);
         endDate.setHours(23, 59, 59, 999);
         break;
       case 'this_year':
-        startDate = new Date(now.getFullYear(), 0, 1); // January 1st of this year
+        startDate = new Date(now.getFullYear(), 0, 1);
         startDate.setHours(0, 0, 0, 0);
         endDate = new Date(now);
         endDate.setHours(23, 59, 59, 999);
@@ -109,7 +246,7 @@ const StaffDashboard = () => {
     
     setUsers(usersWithAge);
     
-    // Get analytics for selected date range using the SAME method as Analytics tab
+    // Get analytics for selected date range
     const { start, end } = getDateRangeForAnalytics();
     
     const rangeAnalytics = await db.getAnalyticsByDateRange(
@@ -190,7 +327,6 @@ const StaffDashboard = () => {
       ageBreakdown,
       avgHoursPerVolunteer: totalHours / totalUsers,
       avgBagsPerDonor: totalBags / totalUsers,
-      // Use the database range data consistently
       rangeHours: rangeData?.totalHours || 0,
       rangeBags: rangeData?.totalBags || 0,
       rangeVolunteers: rangeData?.uniqueVolunteers || 0,
@@ -198,24 +334,116 @@ const StaffDashboard = () => {
     };
   };
 
-  const handleLogin = async () => {
-    setLoading(true);
-    
-    const validUsers = {
-      'admin': { name: 'Administrator', role: 'admin' },
-      'manager': { name: 'Manager', role: 'manager' },
-      'coordinator': { name: 'Volunteer Coordinator', role: 'staff' },
-      'analyst': { name: 'Data Analyst', role: 'staff' }
-    };
+const handleLogin = async () => {
+  if (loginCooldown) {
+    alert('Too many login attempts. Please wait 15 minutes before trying again.');
+    return;
+  }
 
-    if (validUsers[loginForm.username] && loginForm.password === 'password') {
-      setCurrentUser(validUsers[loginForm.username]);
-      setIsLoggedIn(true);
-    } else {
-      alert('Invalid credentials. Use: admin/password, manager/password, etc.');
-    }
+  setLoading(true);
+  
+  try {
+    const staffUser = await db.authenticateStaff(loginForm.username, loginForm.password);
     
+    if (staffUser) {
+      setCurrentUser({
+        name: staffUser.full_name,
+        role: staffUser.role,
+        username: staffUser.username
+      });
+      setIsLoggedIn(true);
+      setLoginForm({ username: '', password: '' });
+      setLoginAttempts(0); // Reset on successful login
+    }
+  } catch (error) {
+    console.error('Login error:', error);
+    
+    const newAttempts = loginAttempts + 1;
+    setLoginAttempts(newAttempts);
+    
+    if (newAttempts >= 5) {
+      setLoginCooldown(true);
+      setTimeout(() => {
+        setLoginCooldown(false);
+        setLoginAttempts(0);
+      }, 15 * 60 * 1000); // 15 minute cooldown
+      
+      alert('Too many failed attempts. Access blocked for 15 minutes.');
+    } else {
+      alert(`Invalid credentials. ${5 - newAttempts} attempts remaining.`);
+    }
+  }
+  
+  setLoading(false);
+};
+
+
+  // Settings page functions
+  const handleSaveSettings = async () => {
+    setLoading(true);
+    try {
+      const success = await db.updateAutoCheckoutSettings(autoCheckoutSettings);
+      if (success) {
+        setShowSaveConfirmation(true);
+        setTimeout(() => setShowSaveConfirmation(false), 3000);
+      } else {
+        alert('Failed to save settings. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error saving settings:', error);
+      alert('Error saving settings. Please try again.');
+    }
     setLoading(false);
+  };
+
+  const handleRunAutoCheckout = async () => {
+    if (analytics.activeVolunteers === 0) {
+      alert('No volunteers are currently checked in.');
+      return;
+    }
+
+    if (!window.confirm(`This will check out ${analytics.activeVolunteers} active volunteers. Are you sure?`)) {
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const result = await db.performAutoCheckout('Manual auto-checkout by staff');
+      if (result.checkedOut.length > 0) {
+        alert(`Successfully checked out ${result.checkedOut.length} volunteers.`);
+        await loadDashboardData(); // Refresh data
+      } else {
+        alert('No volunteers were checked out. They may have already been checked out.');
+      }
+    } catch (error) {
+      console.error('Error running auto-checkout:', error);
+      alert('Error running auto-checkout. Please try again.');
+    }
+    setLoading(false);
+  };
+
+  const copyRegistrationLink = () => {
+    const registrationUrl = `${window.location.origin}/volunteer-register`;
+    navigator.clipboard.writeText(registrationUrl).then(() => {
+      setRegistrationLinkCopied(true);
+      setTimeout(() => setRegistrationLinkCopied(false), 3000);
+    }).catch(err => {
+      console.error('Failed to copy link:', err);
+      alert('Failed to copy link. Please copy manually: ' + registrationUrl);
+    });
+  };
+
+  const updateScheduleDay = (day, field, value) => {
+    setAutoCheckoutSettings(prev => ({
+      ...prev,
+      schedule: {
+        ...prev.schedule,
+        [day]: {
+          ...prev.schedule?.[day],
+          [field]: value
+        }
+      }
+    }));
   };
 
   // Updated function to load user sessions including active ones
@@ -499,7 +727,13 @@ const StaffDashboard = () => {
   };
 
   const getDateRangeLabel = () => {
-    switch (dateRange) {
+    if (dashboardDateType === 'custom') {
+      return `${format(new Date(customDateRange.startDate), 'MMM dd')} - ${format(new Date(customDateRange.endDate), 'MMM dd, yyyy')}`;
+    }
+    
+    switch (presetDateRange) {
+      case 'today': return 'Today';
+      case 'yesterday': return 'Yesterday';
       case 'this_week': return 'This Week';
       case 'this_month': return 'This Month';
       case 'last_month': return 'Last Month';
@@ -509,29 +743,62 @@ const StaffDashboard = () => {
     }
   };
 
-  // Updated and properly sorted filteredUsers
+  // Enhanced filtered users with better filtering and sorting
   const filteredUsers = users.filter(user => {
-    const matchesSearch = user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         user.organization.toLowerCase().includes(searchTerm.toLowerCase());
+    // Global search
+    const globalSearch = searchTerm.toLowerCase();
+    const matchesGlobalSearch = !globalSearch || 
+      user.name.toLowerCase().includes(globalSearch) ||
+      user.email.toLowerCase().includes(globalSearch) ||
+      user.organization.toLowerCase().includes(globalSearch);
+
+    // Column-specific filters
+    const matchesName = !userFilters.name || user.name.toLowerCase().includes(userFilters.name.toLowerCase());
+    const matchesEmail = !userFilters.email || user.email.toLowerCase().includes(userFilters.email.toLowerCase());
+    const matchesOrganization = !userFilters.organization || user.organization.toLowerCase().includes(userFilters.organization.toLowerCase());
+    const matchesProfession = !userFilters.profession || user.profession === userFilters.profession;
+    const matchesCity = !userFilters.city || user.city.toLowerCase().includes(userFilters.city.toLowerCase());
     
-    const matchesFilter = filterType === 'all' || 
-                         (filterType === 'volunteers' && (user.total_hours || 0) > 0) ||
-                         (filterType === 'donors' && (user.total_bags || 0) > 0) ||
-                         (filterType === 'active' && user.is_checked_in) ||
-                         (filterType === 'recent' && user.created_at > new Date(Date.now() - 7*24*60*60*1000));
+    const matchesMinAge = !userFilters.minAge || (user.age && user.age >= parseInt(userFilters.minAge));
+    const matchesMaxAge = !userFilters.maxAge || (user.age && user.age <= parseInt(userFilters.maxAge));
+    const matchesMinHours = !userFilters.minHours || (user.total_hours >= parseFloat(userFilters.minHours));
+    const matchesMaxHours = !userFilters.maxHours || (user.total_hours <= parseFloat(userFilters.maxHours));
+    const matchesMinBags = !userFilters.minBags || (user.total_bags >= parseInt(userFilters.minBags));
+    const matchesMaxBags = !userFilters.maxBags || (user.total_bags <= parseInt(userFilters.maxBags));
+
+    // Status filter
+    const matchesStatus = userFilters.status === 'all' || 
+                         (userFilters.status === 'volunteers' && (user.total_hours || 0) > 0) ||
+                         (userFilters.status === 'donors' && (user.total_bags || 0) > 0) ||
+                         (userFilters.status === 'active' && user.is_checked_in);
     
-    return matchesSearch && matchesFilter;
+    return matchesGlobalSearch && matchesName && matchesEmail && matchesOrganization && 
+           matchesProfession && matchesCity && matchesMinAge && matchesMaxAge && 
+           matchesMinHours && matchesMaxHours && matchesMinBags && matchesMaxBags && matchesStatus;
   }).sort((a, b) => {
-    // First sort by active status (active users first)
-    if (a.is_checked_in && !b.is_checked_in) return -1;
-    if (!a.is_checked_in && b.is_checked_in) return 1;
-    
-    // Then sort by most recent activity
-    const aLastActivity = new Date(a.created_at || 0);
-    const bLastActivity = new Date(b.created_at || 0);
+    // Sort by most recent activity (created_at or last activity)
+    const aLastActivity = new Date(a.last_check_in || a.created_at || 0);
+    const bLastActivity = new Date(b.last_check_in || b.created_at || 0);
     return bLastActivity - aLastActivity;
   });
+
+  const clearAllFilters = () => {
+    setUserFilters({
+      name: '',
+      email: '',
+      organization: '',
+      profession: '',
+      city: '',
+      minAge: '',
+      maxAge: '',
+      minHours: '',
+      maxHours: '',
+      minBags: '',
+      maxBags: '',
+      status: 'all'
+    });
+    setSearchTerm('');
+  };
 
   // Login Screen
   if (!isLoggedIn) {
@@ -542,8 +809,9 @@ const StaffDashboard = () => {
             <div className="mx-auto h-16 w-16 bg-indigo-100 rounded-full flex items-center justify-center mb-4">
               <Users className="h-8 w-8 text-indigo-600" />
             </div>
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">Staff Portal</h1>
-            <p className="text-gray-600">Nonprofit Management Dashboard</p>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">VolunteerHub</h1>
+            <p className="text-gray-600">by DataCream</p>
+            <p className="text-sm text-gray-500 mt-2">Analytics made smooth.</p>
           </div>
           
           <div className="space-y-4">
@@ -585,7 +853,8 @@ const StaffDashboard = () => {
               <div className="h-8 w-8 bg-indigo-600 rounded-lg flex items-center justify-center">
                 <Users className="h-5 w-5 text-white" />
               </div>
-              <h1 className="text-xl font-bold text-gray-900">Staff Portal</h1>
+              <h1 className="text-xl font-bold text-gray-900">VolunteerHub</h1>
+              <span className="text-sm text-gray-500">by DataCream</span>
               {currentView === 'user_detail' && selectedUser && (
                 <span className="text-gray-500">→ {selectedUser.name}</span>
               )}
@@ -645,28 +914,308 @@ const StaffDashboard = () => {
                 <FileText className="h-4 w-4" />
                 Reports
               </button>
+              <button
+                onClick={() => setCurrentView('settings')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${
+                  currentView === 'settings' ? 'bg-indigo-100 text-indigo-700' : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                <Settings className="h-4 w-4" />
+                Settings
+              </button>
             </div>
           </nav>
         )}
 
-        {/* Dashboard View with Time Range Selector */}
+        {/* Settings View */}
+        {currentView === 'settings' && (
+          <div className="space-y-8">
+            {/* Settings Header */}
+            <div className="bg-white rounded-xl shadow-sm p-6">
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">System Settings</h2>
+              <p className="text-gray-600">Configure office hours, auto-checkout, and volunteer registration for VolunteerHub</p>
+            </div>
+
+            {/* Auto-Checkout Configuration */}
+            <div className="bg-white rounded-xl shadow-sm p-6">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">Auto-Checkout System</h3>
+                  <p className="text-gray-600">Automatically check out volunteers after office hours</p>
+                </div>
+                <div className={`px-3 py-1 rounded-full text-sm font-medium ${
+                  autoCheckoutSettings.enabled 
+                    ? 'bg-green-100 text-green-800' 
+                    : 'bg-red-100 text-red-800'
+                }`}>
+                  {autoCheckoutSettings.enabled ? 'ENABLED' : 'DISABLED'}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <h3 className="font-semibold text-gray-900 mb-2">Currently Active</h3>
+                  <p className="text-2xl font-bold text-green-600">{analytics.activeVolunteers}</p>
+                  <p className="text-sm text-gray-600 mt-1">Volunteers checked in</p>
+                </div>
+
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <h3 className="font-semibold text-gray-900 mb-2">Timezone</h3>
+                  <p className="text-lg font-bold text-indigo-600">{autoCheckoutSettings.timezone}</p>
+                  <p className="text-sm text-gray-600 mt-1">Current timezone</p>
+                </div>
+
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <h3 className="font-semibold text-gray-900 mb-2">Status</h3>
+                  <p className="text-sm text-gray-600">
+                    {autoCheckoutSettings.enabled 
+                      ? 'Auto-checkout will run daily after office hours'
+                      : 'Auto-checkout is currently disabled'
+                    }
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-6">
+                {/* Enable/Disable Toggle */}
+                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                  <div>
+                    <h4 className="font-medium text-gray-900">Enable Auto-Checkout</h4>
+                    <p className="text-sm text-gray-600">Automatically check out volunteers after office hours</p>
+                  </div>
+                  <button
+                    onClick={() => setAutoCheckoutSettings({
+                      ...autoCheckoutSettings, 
+                      enabled: !autoCheckoutSettings.enabled
+                    })}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 ${
+                      autoCheckoutSettings.enabled ? 'bg-indigo-600' : 'bg-gray-200'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        autoCheckoutSettings.enabled ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {/* Timezone Configuration */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Timezone</label>
+                  <select
+                    value={autoCheckoutSettings.timezone}
+                    onChange={(e) => setAutoCheckoutSettings({
+                      ...autoCheckoutSettings, 
+                      timezone: e.target.value
+                    })}
+                    className="w-full md:w-1/3 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  >
+                    <option value="America/Chicago">Central Time (CT)</option>
+                    <option value="America/New_York">Eastern Time (ET)</option>
+                    <option value="America/Denver">Mountain Time (MT)</option>
+                    <option value="America/Los_Angeles">Pacific Time (PT)</option>
+                  </select>
+                </div>
+
+                {/* Weekly Schedule Configuration */}
+                <div>
+                  <h4 className="font-medium text-gray-900 mb-4">Weekly Schedule</h4>
+                  <div className="space-y-3">
+                    {autoCheckoutSettings?.schedule && Object.entries(autoCheckoutSettings.schedule).map(([day, schedule]) => (
+                      <div key={day} className="flex items-center gap-4 p-3 bg-gray-50 rounded-lg">
+                        <div className="w-20">
+                          <span className="font-medium text-gray-900 capitalize">{day}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={schedule?.enabled || false}
+                            onChange={(e) => updateScheduleDay(day, 'enabled', e.target.checked)}
+                            className="h-4 w-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500"
+                          />
+                          <span className="text-sm text-gray-600">Open</span>
+                        </div>
+                        {schedule?.enabled && (
+                          <>
+                            <div className="flex items-center gap-2">
+                              <label className="text-sm text-gray-600">From:</label>
+                              <input
+                                type="time"
+                                value={schedule?.startTime || '09:00'}
+                                onChange={(e) => updateScheduleDay(day, 'startTime', e.target.value)}
+                                className="p-2 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                              />
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <label className="text-sm text-gray-600">To:</label>
+                              <input
+                                type="time"
+                                value={schedule?.endTime || '18:00'}
+                                onChange={(e) => updateScheduleDay(day, 'endTime', e.target.value)}
+                                className="p-2 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                              />
+                            </div>
+                          </>
+                        )}
+                        {!schedule?.enabled && (
+                          <span className="text-sm text-gray-500">Closed</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="p-3 bg-yellow-50 rounded-lg">
+                  <p className="text-sm text-yellow-800">
+                    <strong>Note:</strong> Auto-checkout will run daily and check out all volunteers who are still logged in after the end time for each day.
+                  </p>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex gap-4">
+                  <button
+                    onClick={handleSaveSettings}
+                    disabled={loading}
+                    className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-gray-300 transition-colors"
+                  >
+                    {loading ? (
+                      <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
+                    ) : (
+                      <Save className="h-4 w-4" />
+                    )}
+                    Save Settings
+                  </button>
+
+                  <button
+                    onClick={handleRunAutoCheckout}
+                    disabled={loading || analytics.activeVolunteers === 0}
+                    className="flex items-center gap-2 px-6 py-3 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-300 text-white rounded-lg transition-colors"
+                  >
+                    <Clock className="h-4 w-4" />
+                    {loading ? 'Running...' : 'Run Auto-Checkout Now'}
+                  </button>
+                </div>
+
+                {/* Save Confirmation */}
+                {showSaveConfirmation && (
+                  <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg">
+                    <CheckCircle className="h-5 w-5 text-green-600" />
+                    <span className="text-green-800 font-medium">Settings saved successfully!</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Volunteer Registration Link */}
+            <div className="bg-white rounded-xl shadow-sm p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Volunteer Registration</h3>
+              <p className="text-gray-600 mb-6">
+                Share this link with organizers and volunteers to pre-register for events. 
+                They can register from home and check in when they arrive.
+              </p>
+
+              <div className="bg-gray-50 rounded-lg p-4 mb-4">
+                <div className="flex items-center gap-3 mb-3">
+                  <Globe className="h-5 w-5 text-indigo-600" />
+                  <span className="font-medium text-gray-900">Registration URL</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <code className="flex-1 p-3 bg-white border border-gray-200 rounded text-sm text-gray-700 font-mono">
+                    {window.location.origin}/volunteer-register
+                  </code>
+                  <button
+                    onClick={copyRegistrationLink}
+                    className="flex items-center gap-2 px-4 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                  >
+                    <Copy className="h-4 w-4" />
+                    Copy Link
+                  </button>
+                  <a
+                    href="/volunteer-register"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 px-4 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                    Test Link
+                  </a>
+                </div>
+              </div>
+
+              {registrationLinkCopied && (
+                <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg">
+                  <CheckCircle className="h-5 w-5 text-green-600" />
+                  <span className="text-green-800 font-medium">Registration link copied to clipboard!</span>
+                </div>
+              )}
+
+              <div className="mt-6 p-4 bg-blue-50 rounded-lg">
+                <h4 className="font-medium text-blue-900 mb-2">How it works:</h4>
+                <ul className="text-sm text-blue-800 space-y-1">
+                  <li>• Volunteers can register in advance with all their information</li>
+                  <li>• Waivers are completed during registration (adults) or when they arrive (minors)</li>
+                  <li>• When they arrive to volunteer, they just search their name and check in</li>
+                  <li>• Perfect for organizing group volunteer events and orientations</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Enhanced Dashboard View with Custom Date Selection */}
         {currentView === 'dashboard' && (
           <div className="space-y-8">
-            {/* Time Range Selector */}
+            {/* Enhanced Date Range Selector */}
             <div className="bg-white rounded-xl shadow-sm p-6">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                 <h3 className="text-lg font-semibold text-gray-900">Analytics for {getDateRangeLabel()}</h3>
-                <select
-                  value={dateRange}
-                  onChange={(e) => setDateRange(e.target.value)}
-                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                >
-                  <option value="this_week">This Week</option>
-                  <option value="this_month">This Month</option>
-                  <option value="last_month">Last Month</option>
-                  <option value="this_year">This Year</option>
-                  <option value="last_30_days">Last 30 Days</option>
-                </select>
+                
+                <div className="flex flex-col sm:flex-row gap-4">
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm font-medium text-gray-700">Date Type:</label>
+                    <select
+                      value={dashboardDateType}
+                      onChange={(e) => setDashboardDateType(e.target.value)}
+                      className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    >
+                      <option value="preset">Preset Range</option>
+                      <option value="custom">Custom Range</option>
+                    </select>
+                  </div>
+
+                  {dashboardDateType === 'preset' ? (
+                    <select
+                      value={presetDateRange}
+                      onChange={(e) => setPresetDateRange(e.target.value)}
+                      className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    >
+                      <option value="today">Today</option>
+                      <option value="yesterday">Yesterday</option>
+                      <option value="this_week">This Week</option>
+                      <option value="this_month">This Month</option>
+                      <option value="last_month">Last Month</option>
+                      <option value="this_year">This Year</option>
+                      <option value="last_30_days">Last 30 Days</option>
+                    </select>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="date"
+                        value={customDateRange.startDate}
+                        onChange={(e) => setCustomDateRange({...customDateRange, startDate: e.target.value})}
+                        className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      />
+                      <span className="text-gray-500">to</span>
+                      <input
+                        type="date"
+                        value={customDateRange.endDate}
+                        onChange={(e) => setCustomDateRange({...customDateRange, endDate: e.target.value})}
+                        className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -782,39 +1331,186 @@ const StaffDashboard = () => {
           </div>
         )}
 
-        {/* Enhanced Users View */}
+        {/* Enhanced Users View with Column Filters */}
         {currentView === 'users' && (
           <div className="space-y-6">
             <div className="bg-white rounded-xl shadow-sm p-6">
+              {/* Global Search and Export */}
               <div className="flex flex-col md:flex-row gap-4 mb-6">
                 <div className="flex-1 relative">
                   <Search className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
                   <input
                     type="text"
-                    placeholder="Search users..."
+                    placeholder="Global search (name, email, organization)..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                   />
                 </div>
-                <select
-                  value={filterType}
-                  onChange={(e) => setFilterType(e.target.value)}
-                  className="px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                >
-                  <option value="all">All Users</option>
-                  <option value="volunteers">Volunteers</option>
-                  <option value="donors">Donors</option>
-                  <option value="active">Currently Active</option>
-                  <option value="recent">Recent Activity</option>
-                </select>
-                <button
-                  onClick={() => setShowExportModal(true)}
-                  className="flex items-center gap-2 px-4 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-                >
-                  <Download className="h-4 w-4" />
-                  Export
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={clearAllFilters}
+                    className="flex items-center gap-2 px-4 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                  >
+                    <X className="h-4 w-4" />
+                    Clear Filters
+                  </button>
+                  <button
+                    onClick={() => setShowExportModal(true)}
+                    className="flex items-center gap-2 px-4 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                  >
+                    <Download className="h-4 w-4" />
+                    Export
+                  </button>
+                </div>
+              </div>
+
+              {/* Column Filters */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 p-4 bg-gray-50 rounded-lg">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Name</label>
+                  <input
+                    type="text"
+                    placeholder="Filter by name"
+                    value={userFilters.name}
+                    onChange={(e) => setUserFilters({...userFilters, name: e.target.value})}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Email</label>
+                  <input
+                    type="text"
+                    placeholder="Filter by email"
+                    value={userFilters.email}
+                    onChange={(e) => setUserFilters({...userFilters, email: e.target.value})}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Organization</label>
+                  <input
+                    type="text"
+                    placeholder="Filter by organization"
+                    value={userFilters.organization}
+                    onChange={(e) => setUserFilters({...userFilters, organization: e.target.value})}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Profession</label>
+                  <select
+                    value={userFilters.profession}
+                    onChange={(e) => setUserFilters({...userFilters, profession: e.target.value})}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  >
+                    <option value="">All Professions</option>
+                    <option value="IT">IT / Technology</option>
+                    <option value="Medicine">Medicine / Healthcare</option>
+                    <option value="Education">Education / Teaching</option>
+                    <option value="Business">Business / Finance</option>
+                    <option value="Engineering">Engineering</option>
+                    <option value="Homemaker">Homemaker</option>
+                    <option value="Retired">Retired</option>
+                    <option value="Student">Student</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">City</label>
+                  <input
+                    type="text"
+                    placeholder="Filter by city"
+                    value={userFilters.city}
+                    onChange={(e) => setUserFilters({...userFilters, city: e.target.value})}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Age Range</label>
+                  <div className="flex gap-1">
+                    <input
+                      type="number"
+                      placeholder="Min"
+                      value={userFilters.minAge}
+                      onChange={(e) => setUserFilters({...userFilters, minAge: e.target.value})}
+                      className="w-full px-2 py-2 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                    <input
+                      type="number"
+                      placeholder="Max"
+                      value={userFilters.maxAge}
+                      onChange={(e) => setUserFilters({...userFilters, maxAge: e.target.value})}
+                      className="w-full px-2 py-2 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Hours Range</label>
+                  <div className="flex gap-1">
+                    <input
+                      type="number"
+                      step="0.25"
+                      placeholder="Min"
+                      value={userFilters.minHours}
+                      onChange={(e) => setUserFilters({...userFilters, minHours: e.target.value})}
+                      className="w-full px-2 py-2 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                    <input
+                      type="number"
+                      step="0.25"
+                      placeholder="Max"
+                      value={userFilters.maxHours}
+                      onChange={(e) => setUserFilters({...userFilters, maxHours: e.target.value})}
+                      className="w-full px-2 py-2 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Bags Range</label>
+                  <div className="flex gap-1">
+                    <input
+                      type="number"
+                      placeholder="Min"
+                      value={userFilters.minBags}
+                      onChange={(e) => setUserFilters({...userFilters, minBags: e.target.value})}
+                      className="w-full px-2 py-2 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                    <input
+                      type="number"
+                      placeholder="Max"
+                      value={userFilters.maxBags}
+                      onChange={(e) => setUserFilters({...userFilters, maxBags: e.target.value})}
+                      className="w-full px-2 py-2 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Status</label>
+                  <select
+                    value={userFilters.status}
+                    onChange={(e) => setUserFilters({...userFilters, status: e.target.value})}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  >
+                    <option value="all">All Users</option>
+                    <option value="volunteers">Volunteers</option>
+                    <option value="donors">Donors</option>
+                    <option value="active">Currently Active</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Results Summary */}
+              <div className="mb-4 text-sm text-gray-600">
+                Showing {filteredUsers.length} of {users.length} users (sorted by recent activity)
               </div>
 
               <div className="overflow-x-auto">
@@ -1114,11 +1810,40 @@ const StaffDashboard = () => {
           </div>
         )}
 
-        {/* Reports View */}
+        {/* Enhanced Reports View with Custom Date Ranges */}
         {currentView === 'reports' && (
           <div className="space-y-6">
             <div className="bg-white rounded-xl shadow-sm p-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-6">Generate Reports</h3>
+              
+              {/* Date Range Selector for Reports */}
+              <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+                <h4 className="font-medium text-gray-900 mb-4">Report Date Range</h4>
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm text-gray-700">From:</label>
+                    <input
+                      type="date"
+                      value={reportDateRange.startDate}
+                      onChange={(e) => setReportDateRange({...reportDateRange, startDate: e.target.value})}
+                      className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm text-gray-700">To:</label>
+                    <input
+                      type="date"
+                      value={reportDateRange.endDate}
+                      onChange={(e) => setReportDateRange({...reportDateRange, endDate: e.target.value})}
+                      className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                  </div>
+                  <span className="text-sm text-gray-600">
+                    ({Math.ceil((new Date(reportDateRange.endDate) - new Date(reportDateRange.startDate)) / (1000 * 60 * 60 * 24))} days)
+                  </span>
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 <button
                   onClick={() => setShowExportModal(true)}
@@ -1126,25 +1851,72 @@ const StaffDashboard = () => {
                 >
                   <FileText className="h-6 w-6 text-indigo-600 mb-2" />
                   <div className="font-medium text-gray-900">Filtered User Report</div>
-                  <div className="text-sm text-gray-600">Export with custom filters</div>
+                  <div className="text-sm text-gray-600">Export with custom filters and date range</div>
                 </button>
                 
                 <button
-                  onClick={() => alert('Volunteer report generated!')}
+                  onClick={() => {
+                    const startDate = format(new Date(reportDateRange.startDate), 'MMM dd, yyyy');
+                    const endDate = format(new Date(reportDateRange.endDate), 'MMM dd, yyyy');
+                    alert(`Volunteer Hours Report generated for ${startDate} - ${endDate}!`);
+                  }}
                   className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 text-left"
                 >
                   <Clock className="h-6 w-6 text-purple-600 mb-2" />
                   <div className="font-medium text-gray-900">Volunteer Hours Report</div>
-                  <div className="text-sm text-gray-600">Detailed time tracking and sessions</div>
+                  <div className="text-sm text-gray-600">Detailed time tracking for selected date range</div>
                 </button>
                 
                 <button
-                  onClick={() => alert('Age demographics report generated!')}
+                  onClick={() => {
+                    const startDate = format(new Date(reportDateRange.startDate), 'MMM dd, yyyy');
+                    const endDate = format(new Date(reportDateRange.endDate), 'MMM dd, yyyy');
+                    alert(`Demographics Report generated for ${startDate} - ${endDate}!`);
+                  }}
                   className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 text-left"
                 >
                   <Users className="h-6 w-6 text-emerald-600 mb-2" />
                   <div className="font-medium text-gray-900">Demographics Report</div>
-                  <div className="text-sm text-gray-600">Age and profession breakdown</div>
+                  <div className="text-sm text-gray-600">Age and profession breakdown for date range</div>
+                </button>
+
+                <button
+                  onClick={() => {
+                    const startDate = format(new Date(reportDateRange.startDate), 'MMM dd, yyyy');
+                    const endDate = format(new Date(reportDateRange.endDate), 'MMM dd, yyyy');
+                    alert(`Donation Activity Report generated for ${startDate} - ${endDate}!`);
+                  }}
+                  className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 text-left"
+                >
+                  <Package className="h-6 w-6 text-orange-600 mb-2" />
+                  <div className="font-medium text-gray-900">Donation Activity Report</div>
+                  <div className="text-sm text-gray-600">Bags donated and donor activity for date range</div>
+                </button>
+
+                <button
+                  onClick={() => {
+                    const startDate = format(new Date(reportDateRange.startDate), 'MMM dd, yyyy');
+                    const endDate = format(new Date(reportDateRange.endDate), 'MMM dd, yyyy');
+                    alert(`Summary Report generated for ${startDate} - ${endDate}!`);
+                  }}
+                  className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 text-left"
+                >
+                  <BarChart3 className="h-6 w-6 text-green-600 mb-2" />
+                  <div className="font-medium text-gray-900">Executive Summary</div>
+                  <div className="text-sm text-gray-600">Key metrics and trends for date range</div>
+                </button>
+
+                <button
+                  onClick={() => {
+                    const startDate = format(new Date(reportDateRange.startDate), 'MMM dd, yyyy');
+                    const endDate = format(new Date(reportDateRange.endDate), 'MMM dd, yyyy');
+                    alert(`Communication Report generated for ${startDate} - ${endDate}!`);
+                  }}
+                  className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 text-left"
+                >
+                  <Globe className="h-6 w-6 text-blue-600 mb-2" />
+                  <div className="font-medium text-gray-900">Communication Report</div>
+                  <div className="text-sm text-gray-600">Volunteers opted in for communications</div>
                 </button>
               </div>
             </div>
