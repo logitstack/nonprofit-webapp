@@ -29,16 +29,20 @@ const StaffDashboard = () => {
   const [editingUserInfo, setEditingUserInfo] = useState(null);
   const [userInfoForm, setUserInfoForm] = useState({});
   const [exportFilters, setExportFilters] = useState({
-    profession: '',
-    minAge: '',
-    maxAge: '',
-    minHours: '',
-    maxHours: '',
-    minBags: '',
-    maxBags: '',
-    dateRange: 'all_time'
-  });
+  profession: '',
+  minAge: '',
+  maxAge: '',
+  minHours: '',
+  maxHours: '',
+  minBags: '',
+  maxBags: '',
+  dateType: 'all_time',  // NEW: date filtering type
+  startDate: format(subDays(new Date(), 30), 'yyyy-MM-dd'),  // NEW: custom start date
+  endDate: format(new Date(), 'yyyy-MM-dd')  // NEW: custom end date
+});
   const [showExportModal, setShowExportModal] = useState(false);
+  const [previewCount, setPreviewCount] = useState(0);
+  const [previewLoading, setPreviewLoading] = useState(false);
   
   // Settings page state
   const [autoCheckoutSettings, setAutoCheckoutSettings] = useState({
@@ -81,25 +85,18 @@ const StaffDashboard = () => {
     status: 'all'
   });
 
-  // Reports state
-  const [reportDateRange, setReportDateRange] = useState({
-    startDate: format(subDays(new Date(), 30), 'yyyy-MM-dd'),
-    endDate: format(new Date(), 'yyyy-MM-dd')
-  });
-
-  // Load data on component mount and track session
+// Load data on component mount and track session
 useEffect(() => {
   if (isLoggedIn) {
     loadDashboardData();
     loadAutoCheckoutSettings();
-    setSessionStartTime(Date.now()); // Track when session started
+    setSessionStartTime(Date.now());
   }
 }, [isLoggedIn, dashboardDateType, presetDateRange, customDateRange]);
 
-// Add new useEffect for session timeout checking
+// Session timeout checking
 useEffect(() => {
   if (isLoggedIn && sessionStartTime) {
-    // Check session validity every minute
     const sessionCheck = setInterval(() => {
       if (Date.now() - sessionStartTime > SESSION_TIMEOUT) {
         alert('Session expired. Please log in again.');
@@ -107,11 +104,29 @@ useEffect(() => {
         setCurrentUser(null);
         setSessionStartTime(null);
       }
-    }, 60000); // Check every minute
+    }, 60000);
     
     return () => clearInterval(sessionCheck);
   }
 }, [isLoggedIn, sessionStartTime]);
+
+useEffect(() => {
+  const updatePreview = async () => {
+    if (showExportModal) {
+      setPreviewLoading(true);
+      try {
+        const filtered = await applyExportFilters(users);
+        setPreviewCount(filtered.length);
+      } catch (error) {
+        console.error('Error updating preview:', error);
+        setPreviewCount(0);
+      }
+      setPreviewLoading(false);
+    }
+  };
+  updatePreview();
+}, [exportFilters, users, showExportModal]);
+
 
   const loadAutoCheckoutSettings = async () => {
     try {
@@ -164,12 +179,10 @@ useEffect(() => {
   // Enhanced date range calculation for dashboard
   const getDateRangeForAnalytics = () => {
     if (dashboardDateType === 'custom') {
-      const startDate = new Date(customDateRange.startDate);
-      startDate.setHours(0, 0, 0, 0);
-      const endDate = new Date(customDateRange.endDate);
-      endDate.setHours(23, 59, 59, 999);
+      const startDate = new Date(customDateRange.startDate + 'T00:00:00');
+      const endDate = new Date(customDateRange.endDate + 'T23:59:59');
       return { start: startDate, end: endDate };
-    }
+      }
 
     const now = new Date();
     let startDate, endDate;
@@ -648,62 +661,186 @@ const handleLogin = async () => {
     setLoading(false);
   };
 
-  const applyExportFilters = (userData) => {
-    return userData.filter(user => {
-      // Profession filter
-      if (exportFilters.profession && user.profession !== exportFilters.profession) {
-        return false;
-      }
-      
-      // Age filters
-      if (exportFilters.minAge && (!user.age || user.age < parseInt(exportFilters.minAge))) {
-        return false;
-      }
-      if (exportFilters.maxAge && (!user.age || user.age > parseInt(exportFilters.maxAge))) {
-        return false;
-      }
-      
-      // Hours filters
-      if (exportFilters.minHours && (user.total_hours || 0) < parseFloat(exportFilters.minHours)) {
-        return false;
-      }
-      if (exportFilters.maxHours && (user.total_hours || 0) > parseFloat(exportFilters.maxHours)) {
-        return false;
-      }
-      
-      // Bags filters
-      if (exportFilters.minBags && (user.total_bags || 0) < parseInt(exportFilters.minBags)) {
-        return false;
-      }
-      if (exportFilters.maxBags && (user.total_bags || 0) > parseInt(exportFilters.maxBags)) {
-        return false;
-      }
-      
-      return true;
-    });
-  };
 
-  const exportData = () => {
-    const filteredUsers = applyExportFilters(users);
+const getVolunteerHoursInDateRange = async (userId, filters) => {
+  try {
+    let startDate, endDate;
+    
+    if (filters.dateType === 'custom') {
+      // Dates are already in yyyy-MM-dd format
+      startDate = new Date(filters.startDate + 'T00:00:00');
+      endDate = new Date(filters.endDate + 'T23:59:59');
+    } else {
+      // ... rest of preset date logic stays the same
+      const now = new Date();
+      switch (filters.dateType) {
+        case 'this_year':
+          startDate = new Date(now.getFullYear(), 0, 1);
+          endDate = now;
+          break;
+        case 'this_month':
+          startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+          endDate = now;
+          break;
+        case 'last_month':
+          const lastMonth = new Date(now);
+          lastMonth.setMonth(now.getMonth() - 1);
+          startDate = new Date(lastMonth.getFullYear(), lastMonth.getMonth(), 1);
+          endDate = new Date(lastMonth.getFullYear(), lastMonth.getMonth() + 1, 0);
+          break;
+        case 'last_30_days':
+          startDate = new Date(now);
+          startDate.setDate(now.getDate() - 30);
+          endDate = now;
+          break;
+        default:
+          return 0;
+      }
+    }
+    
+    const sessions = await db.getUserSessionsInDateRange(userId, startDate.toISOString(), endDate.toISOString());
+    return sessions.reduce((total, session) => total + (session.hours_worked || 0), 0);
+  } catch (error) {
+    console.error('Error getting volunteer hours in date range:', error);
+    return 0;
+  }
+};
+
+ const applyExportFilters = async (userData) => {
+ // First apply the non-date filters
+ let filteredUsers = userData.filter(user => {
+   // Profession filter
+   if (exportFilters.profession && user.profession !== exportFilters.profession) {
+     return false;
+   }
+   
+   // Age filters
+   if (exportFilters.minAge && (!user.age || user.age < parseInt(exportFilters.minAge))) {
+     return false;
+   }
+   if (exportFilters.maxAge && (!user.age || user.age > parseInt(exportFilters.maxAge))) {
+     return false;
+   }
+   
+   // Hours filters (still based on total for initial filtering)
+   if (exportFilters.minHours && (user.total_hours || 0) < parseFloat(exportFilters.minHours)) {
+     return false;
+   }
+   if (exportFilters.maxHours && (user.total_hours || 0) > parseFloat(exportFilters.maxHours)) {
+     return false;
+   }
+   
+   // Bags filters
+   if (exportFilters.minBags && (user.total_bags || 0) < parseInt(exportFilters.minBags)) {
+     return false;
+   }
+   if (exportFilters.maxBags && (user.total_bags || 0) > parseInt(exportFilters.maxBags)) {
+     return false;
+   }
+   
+   return true;
+ });
+
+ // If date filtering is enabled, filter by volunteer activity in that date range
+ if (exportFilters.dateType !== 'all_time') {
+   let startDate, endDate;
+   
+   if (exportFilters.dateType === 'custom') {
+     startDate = new Date(exportFilters.startDate + 'T00:00:00');
+     endDate = new Date(exportFilters.endDate + 'T23:59:59');
+   } else {
+     // Handle preset date ranges
+     const now = new Date();
+     switch (exportFilters.dateType) {
+       case 'this_year':
+         startDate = new Date(now.getFullYear(), 0, 1);
+         endDate = now;
+         break;
+       case 'this_month':
+         startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+         endDate = now;
+         break;
+       case 'last_month':
+         const lastMonth = new Date(now);
+         lastMonth.setMonth(now.getMonth() - 1);
+         startDate = new Date(lastMonth.getFullYear(), lastMonth.getMonth(), 1);
+         endDate = new Date(lastMonth.getFullYear(), lastMonth.getMonth() + 1, 0);
+         break;
+       case 'last_30_days':
+         startDate = new Date(now);
+         startDate.setDate(now.getDate() - 30);
+         endDate = now;
+         break;
+       default:
+         return filteredUsers.map(user => ({
+           ...user,
+           hoursInRange: user.total_hours || 0
+         }));
+     }
+   }
+   
+   // Single database call to get all volunteer hours in range
+   const userHoursMap = await db.getVolunteersWithHoursInDateRange(
+     startDate.toISOString(), 
+     endDate.toISOString()
+   );
+   
+   // Only include users who worked during this period
+   const usersWithRangeHours = filteredUsers
+     .filter(user => userHoursMap[user.id] > 0)
+     .map(user => ({
+       ...user,
+       hoursInRange: userHoursMap[user.id] || 0
+     }));
+   
+   return usersWithRangeHours;
+ }
+ 
+ // If no date filtering, return all users but add hoursInRange = total_hours
+ return filteredUsers.map(user => ({
+   ...user,
+   hoursInRange: user.total_hours || 0
+ }));
+};
+
+  const exportData = async () => {
+  console.log('Export filters:', exportFilters);
+  console.log('Date type:', exportFilters.dateType);
+  console.log('Start date:', exportFilters.startDate);
+  console.log('End date:', exportFilters.endDate);
+  
+  setLoading(true);
+  
+  try {
+    const filteredUsers = await applyExportFilters(users);
+    
+    if (filteredUsers.length === 0) {
+      alert('No volunteers found matching your criteria.');
+      setLoading(false);
+      return;
+    }
     
     const csvData = filteredUsers.map(user => ({
       Name: user.name,
       Email: user.email,
       Phone: user.phone,
       Age: user.age || 'Not specified',
-      City: user.city,
-      Organization: user.organization,
+      City: user.city || '',
+      Organization: user.organization || '',
       Profession: user.profession || 'Not specified',
-      'Total Hours': user.total_hours || 0,
-      'Total Bags': user.total_bags || 0,
+      'Hours in Period': user.hoursInRange.toFixed(2),
+      'Total Lifetime Hours': user.total_hours || 0,
+      'Total Bags Donated': user.total_bags || 0,
       Status: user.is_checked_in ? 'Active' : 'Offline',
-      'Created': format(new Date(user.created_at), 'MM/dd/yyyy')
+      'Registered': format(new Date(user.created_at), 'MM/dd/yyyy')
     }));
     
     // Convert to CSV
     const csv = [
       Object.keys(csvData[0]).join(','),
-      ...csvData.map(row => Object.values(row).join(','))
+      ...csvData.map(row => Object.values(row).map(val => 
+        typeof val === 'string' && val.includes(',') ? `"${val}"` : val
+      ).join(','))
     ].join('\n');
     
     // Download
@@ -711,12 +848,36 @@ const handleLogin = async () => {
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `volunteer-data-filtered-${format(new Date(), 'yyyy-MM-dd')}.csv`;
+    
+    let dateRangeLabel;
+    if (exportFilters.dateType === 'custom') {
+      if (exportFilters.startDate === exportFilters.endDate) {
+        // Same day - just show one date
+        dateRangeLabel = `${exportFilters.startDate}`;
+      } else {
+        // Different dates - show range
+        dateRangeLabel = `${exportFilters.startDate}-to-${exportFilters.endDate}`;
+      }
+    } else {
+      dateRangeLabel = exportFilters.dateType;
+    }
+
+    a.download = `volunteer-activity-${dateRangeLabel}.csv`;
+    console.log('Date range label:', dateRangeLabel);
+    console.log('Start date value:', exportFilters.startDate);
+    console.log('End date value:', exportFilters.endDate);
+    console.log('Final filename:', a.download);
     a.click();
     
     setShowExportModal(false);
-    alert(`Exported ${filteredUsers.length} records matching your filters.`);
-  };
+    alert(`Exported ${filteredUsers.length} volunteers who worked during the selected period.`);
+  } catch (error) {
+    console.error('Error exporting data:', error);
+    alert('Error generating export. Please try again.');
+  }
+  
+  setLoading(false);
+};
 
   const formatDate = (date) => {
     return format(new Date(date), 'MMM dd, yyyy');
@@ -728,8 +889,10 @@ const handleLogin = async () => {
 
   const getDateRangeLabel = () => {
     if (dashboardDateType === 'custom') {
-      return `${format(new Date(customDateRange.startDate), 'MMM dd')} - ${format(new Date(customDateRange.endDate), 'MMM dd, yyyy')}`;
-    }
+    const startDate = new Date(customDateRange.startDate + 'T00:00:00');
+    const endDate = new Date(customDateRange.endDate + 'T00:00:00');
+    return `${format(startDate, 'MMM dd')} - ${format(endDate, 'MMM dd, yyyy')}`;
+  }
     
     switch (presetDateRange) {
       case 'today': return 'Today';
@@ -1815,34 +1978,6 @@ const handleLogin = async () => {
           <div className="space-y-6">
             <div className="bg-white rounded-xl shadow-sm p-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-6">Generate Reports</h3>
-              
-              {/* Date Range Selector for Reports */}
-              <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-                <h4 className="font-medium text-gray-900 mb-4">Report Date Range</h4>
-                <div className="flex items-center gap-4">
-                  <div className="flex items-center gap-2">
-                    <label className="text-sm text-gray-700">From:</label>
-                    <input
-                      type="date"
-                      value={reportDateRange.startDate}
-                      onChange={(e) => setReportDateRange({...reportDateRange, startDate: e.target.value})}
-                      className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <label className="text-sm text-gray-700">To:</label>
-                    <input
-                      type="date"
-                      value={reportDateRange.endDate}
-                      onChange={(e) => setReportDateRange({...reportDateRange, endDate: e.target.value})}
-                      className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    />
-                  </div>
-                  <span className="text-sm text-gray-600">
-                    ({Math.ceil((new Date(reportDateRange.endDate) - new Date(reportDateRange.startDate)) / (1000 * 60 * 60 * 24))} days)
-                  </span>
-                </div>
-              </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 <button
@@ -1855,63 +1990,43 @@ const handleLogin = async () => {
                 </button>
                 
                 <button
-                  onClick={() => {
-                    const startDate = format(new Date(reportDateRange.startDate), 'MMM dd, yyyy');
-                    const endDate = format(new Date(reportDateRange.endDate), 'MMM dd, yyyy');
-                    alert(`Volunteer Hours Report generated for ${startDate} - ${endDate}!`);
-                  }}
+                  onClick={() => alert('Volunteer Hours Report generated!')}
                   className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 text-left"
                 >
                   <Clock className="h-6 w-6 text-purple-600 mb-2" />
                   <div className="font-medium text-gray-900">Volunteer Hours Report</div>
-                  <div className="text-sm text-gray-600">Detailed time tracking for selected date range</div>
+                  <div className="text-sm text-gray-600">Detailed time tracking</div>
                 </button>
-                
+
                 <button
-                  onClick={() => {
-                    const startDate = format(new Date(reportDateRange.startDate), 'MMM dd, yyyy');
-                    const endDate = format(new Date(reportDateRange.endDate), 'MMM dd, yyyy');
-                    alert(`Demographics Report generated for ${startDate} - ${endDate}!`);
-                  }}
+                  onClick={() => alert('Demographics Report generated!')}
                   className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 text-left"
                 >
                   <Users className="h-6 w-6 text-emerald-600 mb-2" />
                   <div className="font-medium text-gray-900">Demographics Report</div>
-                  <div className="text-sm text-gray-600">Age and profession breakdown for date range</div>
+                  <div className="text-sm text-gray-600">Age and profession breakdown</div>
                 </button>
 
                 <button
-                  onClick={() => {
-                    const startDate = format(new Date(reportDateRange.startDate), 'MMM dd, yyyy');
-                    const endDate = format(new Date(reportDateRange.endDate), 'MMM dd, yyyy');
-                    alert(`Donation Activity Report generated for ${startDate} - ${endDate}!`);
-                  }}
+                  onClick={() => alert('Donation Activity Report generated!')}
                   className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 text-left"
                 >
                   <Package className="h-6 w-6 text-orange-600 mb-2" />
                   <div className="font-medium text-gray-900">Donation Activity Report</div>
-                  <div className="text-sm text-gray-600">Bags donated and donor activity for date range</div>
+                  <div className="text-sm text-gray-600">Bags donated and donor activity</div>
                 </button>
 
                 <button
-                  onClick={() => {
-                    const startDate = format(new Date(reportDateRange.startDate), 'MMM dd, yyyy');
-                    const endDate = format(new Date(reportDateRange.endDate), 'MMM dd, yyyy');
-                    alert(`Summary Report generated for ${startDate} - ${endDate}!`);
-                  }}
+                  onClick={() => alert('Executive Summary generated!')}
                   className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 text-left"
                 >
                   <BarChart3 className="h-6 w-6 text-green-600 mb-2" />
                   <div className="font-medium text-gray-900">Executive Summary</div>
-                  <div className="text-sm text-gray-600">Key metrics and trends for date range</div>
+                  <div className="text-sm text-gray-600">Key metrics and trends</div>
                 </button>
 
                 <button
-                  onClick={() => {
-                    const startDate = format(new Date(reportDateRange.startDate), 'MMM dd, yyyy');
-                    const endDate = format(new Date(reportDateRange.endDate), 'MMM dd, yyyy');
-                    alert(`Communication Report generated for ${startDate} - ${endDate}!`);
-                  }}
+                  onClick={() => alert('Communication Report generated!')}
                   className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 text-left"
                 >
                   <Globe className="h-6 w-6 text-blue-600 mb-2" />
@@ -2128,6 +2243,52 @@ const handleLogin = async () => {
             </div>
             
             <div className="p-6 space-y-6">
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+    <h4 className="font-medium text-blue-900 mb-4">Date Range (Volunteer Activity Period)</h4>
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Time Period</label>
+        <select
+          value={exportFilters.dateType}
+          onChange={(e) => setExportFilters({...exportFilters, dateType: e.target.value})}
+          className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+        >
+          <option value="all_time">All Time</option>
+          <option value="this_year">This Year</option>
+          <option value="this_month">This Month</option>
+          <option value="last_month">Last Month</option>
+          <option value="last_30_days">Last 30 Days</option>
+          <option value="custom">Custom Range</option>
+        </select>
+      </div>
+      
+      {exportFilters.dateType === 'custom' && (
+        <>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Start Date</label>
+            <input
+              type="date"
+              value={exportFilters.startDate}
+              onChange={(e) => setExportFilters({...exportFilters, startDate: e.target.value})}
+              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">End Date</label>
+            <input
+              type="date"
+              value={exportFilters.endDate}
+              onChange={(e) => setExportFilters({...exportFilters, endDate: e.target.value})}
+              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+            />
+          </div>
+        </>
+      )}
+    </div>
+    <p className="text-sm text-blue-700 mt-2">
+      Only volunteers who worked during this period will be included. Hours shown will be only from this period.
+    </p>
+  </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {/* Profession Filter */}
                 <div>
@@ -2151,20 +2312,6 @@ const handleLogin = async () => {
                 </div>
 
                 {/* Date Range Filter */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Time Period</label>
-                  <select
-                    value={exportFilters.dateRange}
-                    onChange={(e) => setExportFilters({...exportFilters, dateRange: e.target.value})}
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  >
-                    <option value="all_time">All Time</option>
-                    <option value="this_year">This Year</option>
-                    <option value="this_month">This Month</option>
-                    <option value="last_month">Last Month</option>
-                    <option value="last_30_days">Last 30 Days</option>
-                  </select>
-                </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Age Range</label>
                   <div className="grid grid-cols-2 gap-2">
@@ -2231,10 +2378,15 @@ const handleLogin = async () => {
               </div>
 
               <div className="p-4 bg-blue-50 rounded-lg">
-                <p className="text-sm text-blue-800">
-                  <strong>Preview:</strong> {applyExportFilters(users).length} of {users.length} users match your filters
-                </p>
-              </div>
+              <p className="text-sm text-blue-800">
+                <strong>Preview:</strong> {previewLoading ? 'Calculating...' : `${previewCount} volunteers worked during the selected period`}
+                {exportFilters.dateType !== 'all_time' && !previewLoading && (
+                  <span className="block mt-1">
+                    Report will show hours worked only within the date range, not total lifetime hours.
+                  </span>
+                )}
+              </p>
+            </div>
             </div>
             
             <div className="p-6 border-t border-gray-200 flex gap-3">
@@ -2246,10 +2398,20 @@ const handleLogin = async () => {
               </button>
               <button
                 onClick={exportData}
-                className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
+                disabled={loading}
+                className="flex-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
               >
-                <Download className="h-4 w-4" />
-                Export Filtered Data
+                {loading ? (
+                  <>
+                    <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Download className="h-4 w-4" />
+                    Export Filtered Data
+                  </>
+                )}
               </button>
             </div>
           </div>

@@ -15,34 +15,48 @@ class Database {
     };
   }
 
-  // Staff authentication
-  async authenticateStaff(username, password) {
-    try {
-      const { data, error } = await supabase.rpc('verify_staff_password', {
-        username_input: username,
-        password_input: password
-      });
+  async authenticateStaff(email, password) {
+  try {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: email,
+      password: password
+    });
 
-      if (error || !data || data.length === 0) {
-        throw new Error('Invalid credentials');
-      }
-
-      this.currentStaffUser = data[0];
-      return data[0];
-
-    } catch (error) {
-      console.error('Authentication error:', error);
-      throw error;
+    if (error) {
+      throw new Error('Invalid credentials');
     }
+
+    // Get staff profile
+    const { data: profile, error: profileError } = await supabase
+      .from('staff_profiles')
+      .select('*')
+      .eq('id', data.user.id)
+      .single();
+
+    if (profileError || !profile) {
+      throw new Error('Not authorized as staff');
+    }
+
+    this.currentStaffUser = {
+      ...profile,
+      email: data.user.email
+    };
+
+    return this.currentStaffUser;
+  } catch (error) {
+    console.error('Authentication error:', error);
+    throw error;
   }
+}
 
   getCurrentStaffUser() {
     return this.currentStaffUser;
   }
 
   logout() {
-    this.currentStaffUser = null;
-  }
+  supabase.auth.signOut();
+  this.currentStaffUser = null;
+}
 
   // User operations
   async findUsers(searchTerm) {
@@ -337,6 +351,27 @@ async createUser(userData) {
     }
   }
 
+  async getUserSessionsInDateRange(userId, startDate, endDate) {
+  try {
+    const { data, error } = await supabase
+      .from('volunteer_sessions')
+      .select('*')
+      .eq('user_id', userId)
+      .gte('check_in_time', startDate)
+      .lte('check_in_time', endDate)
+      .order('check_in_time', { ascending: false });
+    
+    if (error) {
+      console.error('Error getting user sessions in date range:', error);
+      return [];
+    }
+    return data || [];
+  } catch (error) {
+    console.error('Error getting user sessions in date range:', error);
+    return [];
+  }
+}
+
   async updateSession(sessionId, updates) {
     try {
       if (updates.check_in_time && updates.check_out_time) {
@@ -408,50 +443,57 @@ async createUser(userData) {
   }
 
   // Auto-checkout functionality
-  async getAutoCheckoutSettings() {
-    try {
-      const { data, error } = await supabase
-        .from('system_settings')
-        .select('*')
-        .eq('key', 'auto_checkout')
-        .single();
-      
-      if (error) {
-        console.error('Error getting auto-checkout settings:', error);
-        return this.autoCheckoutSettings;
-      }
-      
-      return data ? JSON.parse(data.value) : this.autoCheckoutSettings;
-    } catch (error) {
-      console.error('Error parsing auto-checkout settings:', error);
+ async getAutoCheckoutSettings() {
+  try {
+    const { data, error } = await supabase
+      .from('system_settings')
+      .select('*')
+      .eq('key', 'auto_checkout')
+      .single();
+    
+    if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found
+      console.error('Error getting auto-checkout settings:', error);
       return this.autoCheckoutSettings;
     }
+    
+    return data ? JSON.parse(data.value) : this.autoCheckoutSettings;
+  } catch (error) {
+    console.error('Error parsing auto-checkout settings:', error);
+    return this.autoCheckoutSettings;
   }
+}
 
-  async updateAutoCheckoutSettings(settings) {
-    try {
-      const { data, error } = await supabase
-        .from('system_settings')
-        .upsert([{
-          key: 'auto_checkout',
-          value: JSON.stringify(settings),
-          updated_at: new Date().toISOString()
-        }])
-        .select()
-        .single();
-      
-      if (error) {
-        console.error('Error updating auto-checkout settings:', error);
-        return false;
-      }
-      
-      this.autoCheckoutSettings = settings;
-      return true;
-    } catch (error) {
-      console.error('Error updating auto-checkout settings:', error);
+  // In database.js, update the updateAutoCheckoutSettings function:
+async updateAutoCheckoutSettings(settings) {
+  try {
+    console.log('Attempting to save settings:', settings);
+    
+    const { data, error } = await supabase
+      .from('system_settings')
+      .upsert({
+        key: 'auto_checkout',
+        value: JSON.stringify(settings),
+        updated_at: new Date().toISOString()
+      }, {
+        onConflict: 'key'  // Specify which column to check for conflicts
+      })
+      .select()
+      .single();
+    
+    console.log('Supabase response:', { data, error });
+    
+    if (error) {
+      console.error('Supabase error details:', error);
       return false;
     }
+    
+    this.autoCheckoutSettings = settings;
+    return true;
+  } catch (error) {
+    console.error('Exception in updateAutoCheckoutSettings:', error);
+    return false;
   }
+}
 
   async performAutoCheckout(reason = 'Auto-checkout: Office hours ended') {
     try {
@@ -482,20 +524,59 @@ async createUser(userData) {
     }
   }
 
-  async shouldRunAutoCheckout() {
-    try {
-      const settings = await this.getAutoCheckoutSettings();
-      if (!settings.enabled) return false;
-
-      const now = new Date();
-      const currentTime = now.toTimeString().slice(0, 5);
-      
-      return currentTime >= settings.endTime;
-    } catch (error) {
-      console.error('Error checking if auto-checkout should run:', error);
+async shouldRunAutoCheckout() {
+  try {
+    const settings = await this.getAutoCheckoutSettings();
+    console.log('Auto-checkout settings:', settings);
+    
+    if (!settings.enabled) {
+      console.log('Auto-checkout disabled');
       return false;
     }
+
+    const now = new Date();
+    const currentDay = now.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+    const currentTime = now.toTimeString().slice(0, 5);
+    
+    console.log('Current day:', currentDay);
+    console.log('Current time:', currentTime);
+    console.log('Available schedule days:', Object.keys(settings.schedule || {}));
+    
+    const daySchedule = settings.schedule?.[currentDay];
+    console.log('Today\'s schedule:', daySchedule);
+    
+    if (!daySchedule?.enabled) {
+      console.log('Today is not enabled for auto-checkout');
+      return false;
+    }
+    
+    console.log(`Comparing ${currentTime} >= ${daySchedule.endTime}`);
+    return currentTime >= daySchedule.endTime;
+  } catch (error) {
+    console.error('Error checking if auto-checkout should run:', error);
+    return false;
   }
+}
+
+// Add this to database.js
+async getAllSessionsInDateRange(startDate, endDate) {
+  try {
+    const { data, error } = await supabase
+      .from('volunteer_sessions')
+      .select('user_id, hours_worked')
+      .gte('check_in_time', startDate)
+      .lte('check_in_time', endDate);
+    
+    if (error) {
+      console.error('Error getting all sessions in date range:', error);
+      return [];
+    }
+    return data || [];
+  } catch (error) {
+    console.error('Error getting all sessions in date range:', error);
+    return [];
+  }
+}
 
   // Analytics
   async getAnalyticsByDateRange(startDate, endDate) {
@@ -647,6 +728,34 @@ async createUser(userData) {
       return null;
     }
   }
+
+  // Add to database.js
+async getVolunteersWithHoursInDateRange(startDate, endDate) {
+  try {
+    const { data: sessions, error } = await supabase
+      .from('volunteer_sessions')
+      .select('user_id, hours_worked')
+      .gte('check_in_time', startDate)
+      .lte('check_in_time', endDate);
+    
+    if (error) {
+      console.error('Error getting volunteer sessions:', error);
+      return {};
+    }
+    
+    // Group sessions by user and sum hours
+    const userHours = {};
+    sessions.forEach(session => {
+      const userId = session.user_id;
+      userHours[userId] = (userHours[userId] || 0) + (session.hours_worked || 0);
+    });
+    
+    return userHours;
+  } catch (error) {
+    console.error('Error getting volunteers with hours:', error);
+    return {};
+  }
+}
 
   // Waiver system for minors
   async sendParentWaiverEmail(userId, parentEmail, volunteerName) {
