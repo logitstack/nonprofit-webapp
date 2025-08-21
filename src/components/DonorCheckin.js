@@ -68,22 +68,38 @@ const DonorCheckin = () => {
   };
 
   const handleRegister = async () => {
-    setLoading(true);
-    // Create new user in shared database
-    const newUser = await db.createUser({
-      ...formData,
-      age: parseInt(formData.age)
-    });
-    
-    if (newUser) {
-      // Add their first donation
-      const updatedUser = await db.addDonation(newUser.id, bagCount);
-      if (updatedUser) {
-        setSelectedUser(updatedUser);
-        setCurrentView('success');
-        refreshData();
+      console.log('Starting donor registration with data:', formData);
+      setLoading(true);
+      
+      try {
+        // Create new user in shared database
+        console.log('Calling db.createUser...');
+        const newUser = await db.createUser({
+          ...formData,
+        });
+        
+        console.log('createUser result:', newUser);
+        
+        if (newUser) {
+          // Add their first donation
+          console.log('Adding donation for user:', newUser.id);
+          const updatedUser = await db.addDonation(newUser.id, bagCount);
+          console.log('addDonation result:', updatedUser);
+          
+          if (updatedUser) {
+            setSelectedUser(updatedUser);
+            setCurrentView('success');
+            refreshData();
+            console.log('Registration completed successfully');
+          } else {
+            console.error('addDonation failed - no updated user returned');
+          }
+        } else {
+          console.error('createUser failed - no user returned');
+        }
+      } catch (error) {
+        console.error('Registration error:', error);
       }
-    }
     setLoading(false);
     
     // Reset form

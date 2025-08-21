@@ -138,7 +138,7 @@ async createUser(userData) {
         phone: userData.phone,
         city: userData.city || '',
         organization: userData.organization || '',
-        date_of_birth: userData.dateOfBirth,
+        date_of_birth: userData.dateOfBirth || null,
         profession: userData.profession || '',
         allow_communication: userData.allowCommunication || false,
         waiver_signed: userData.waiverSigned || false,
