@@ -89,15 +89,18 @@ const VolunteerCheckin = ({ onBack }) => {
   };
 
   const handleUserSelect = (user) => {
-    setSelectedUser(user);
-    
-    // Check if user needs to complete waiver
-    if (!user.waiver_signed) {
-      setCurrentView('complete_waiver');
-    } else {
-      setCurrentView('action');
-    }
-  };
+  setSelectedUser(user);
+  
+  // If user is already checked in, go straight to action (check-out)
+  if (user.is_checked_in) {
+    setCurrentView('action');
+  } else if (!user.waiver_signed) {
+    // Only check waiver for check-in, not check-out
+    setCurrentView('complete_waiver');
+  } else {
+    setCurrentView('action');
+  }
+};
 
   // Enhanced check-in for existing users
   const handleCheckIn = async () => {
