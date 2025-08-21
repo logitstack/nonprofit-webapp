@@ -177,75 +177,85 @@ useEffect(() => {
   };
 
   // Enhanced date range calculation for dashboard
-  const getDateRangeForAnalytics = () => {
-    if (dashboardDateType === 'custom') {
-      const startDate = new Date(customDateRange.startDate + 'T00:00:00');
-      const endDate = new Date(customDateRange.endDate + 'T23:59:59');
-      return { start: startDate, end: endDate };
-      }
+const getDateRangeForAnalytics = () => {
+ if (dashboardDateType === 'custom') {
+   // Validate that both dates are complete before processing
+   if (!customDateRange.startDate || !customDateRange.endDate || 
+       customDateRange.startDate.length !== 10 || customDateRange.endDate.length !== 10) {
+     // Return default range if dates are incomplete
+     const now = new Date();
+     const thirtyDaysAgo = new Date(now);
+     thirtyDaysAgo.setDate(now.getDate() - 30);
+     return { start: thirtyDaysAgo, end: now };
+   }
+   
+   const startDate = new Date(customDateRange.startDate + 'T00:00:00');
+   const endDate = new Date(customDateRange.endDate + 'T23:59:59');
+   return { start: startDate, end: endDate };
+ }
 
-    const now = new Date();
-    let startDate, endDate;
-    
-    switch (presetDateRange) {
-      case 'today':
-        startDate = new Date(now);
-        startDate.setHours(0, 0, 0, 0);
-        endDate = new Date(now);
-        endDate.setHours(23, 59, 59, 999);
-        break;
-      case 'yesterday':
-        startDate = new Date(now);
-        startDate.setDate(now.getDate() - 1);
-        startDate.setHours(0, 0, 0, 0);
-        endDate = new Date(now);
-        endDate.setDate(now.getDate() - 1);
-        endDate.setHours(23, 59, 59, 999);
-        break;
-      case 'this_week':
-        startDate = new Date(now);
-        startDate.setDate(now.getDate() - 6);
-        startDate.setHours(0, 0, 0, 0);
-        endDate = new Date(now);
-        endDate.setHours(23, 59, 59, 999);
-        break;
-      case 'this_month':
-        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-        startDate.setHours(0, 0, 0, 0);
-        endDate = new Date(now);
-        endDate.setHours(23, 59, 59, 999);
-        break;
-      case 'last_month':
-        const lastMonth = new Date(now);
-        lastMonth.setMonth(now.getMonth() - 1);
-        startDate = new Date(lastMonth.getFullYear(), lastMonth.getMonth(), 1);
-        startDate.setHours(0, 0, 0, 0);
-        endDate = new Date(lastMonth.getFullYear(), lastMonth.getMonth() + 1, 0);
-        endDate.setHours(23, 59, 59, 999);
-        break;
-      case 'this_year':
-        startDate = new Date(now.getFullYear(), 0, 1);
-        startDate.setHours(0, 0, 0, 0);
-        endDate = new Date(now);
-        endDate.setHours(23, 59, 59, 999);
-        break;
-      case 'last_30_days':
-        startDate = new Date(now);
-        startDate.setDate(now.getDate() - 29);
-        startDate.setHours(0, 0, 0, 0);
-        endDate = new Date(now);
-        endDate.setHours(23, 59, 59, 999);
-        break;
-      default:
-        startDate = new Date(now);
-        startDate.setDate(now.getDate() - 29);
-        startDate.setHours(0, 0, 0, 0);
-        endDate = new Date(now);
-        endDate.setHours(23, 59, 59, 999);
-    }
-    
-    return { start: startDate, end: endDate };
-  };
+ const now = new Date();
+ let startDate, endDate;
+ 
+ switch (presetDateRange) {
+   case 'today':
+     startDate = new Date(now);
+     startDate.setHours(0, 0, 0, 0);
+     endDate = new Date(now);
+     endDate.setHours(23, 59, 59, 999);
+     break;
+   case 'yesterday':
+     startDate = new Date(now);
+     startDate.setDate(now.getDate() - 1);
+     startDate.setHours(0, 0, 0, 0);
+     endDate = new Date(now);
+     endDate.setDate(now.getDate() - 1);
+     endDate.setHours(23, 59, 59, 999);
+     break;
+   case 'this_week':
+     startDate = new Date(now);
+     startDate.setDate(now.getDate() - 6);
+     startDate.setHours(0, 0, 0, 0);
+     endDate = new Date(now);
+     endDate.setHours(23, 59, 59, 999);
+     break;
+   case 'this_month':
+     startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+     startDate.setHours(0, 0, 0, 0);
+     endDate = new Date(now);
+     endDate.setHours(23, 59, 59, 999);
+     break;
+   case 'last_month':
+     const lastMonth = new Date(now);
+     lastMonth.setMonth(now.getMonth() - 1);
+     startDate = new Date(lastMonth.getFullYear(), lastMonth.getMonth(), 1);
+     startDate.setHours(0, 0, 0, 0);
+     endDate = new Date(lastMonth.getFullYear(), lastMonth.getMonth() + 1, 0);
+     endDate.setHours(23, 59, 59, 999);
+     break;
+   case 'this_year':
+     startDate = new Date(now.getFullYear(), 0, 1);
+     startDate.setHours(0, 0, 0, 0);
+     endDate = new Date(now);
+     endDate.setHours(23, 59, 59, 999);
+     break;
+   case 'last_30_days':
+     startDate = new Date(now);
+     startDate.setDate(now.getDate() - 29);
+     startDate.setHours(0, 0, 0, 0);
+     endDate = new Date(now);
+     endDate.setHours(23, 59, 59, 999);
+     break;
+   default:
+     startDate = new Date(now);
+     startDate.setDate(now.getDate() - 29);
+     startDate.setHours(0, 0, 0, 0);
+     endDate = new Date(now);
+     endDate.setHours(23, 59, 59, 999);
+ }
+ 
+ return { start: startDate, end: endDate };
+};
 
   const loadDashboardData = async () => {
     setLoading(true);
@@ -888,23 +898,29 @@ const getVolunteerHoursInDateRange = async (userId, filters) => {
   };
 
   const getDateRangeLabel = () => {
-    if (dashboardDateType === 'custom') {
+  if (dashboardDateType === 'custom') {
+    // Only format if both dates are complete
+    if (!customDateRange.startDate || !customDateRange.endDate || 
+        customDateRange.startDate.length !== 10 || customDateRange.endDate.length !== 10) {
+      return 'Custom Range (incomplete)';
+    }
+    
     const startDate = new Date(customDateRange.startDate + 'T00:00:00');
     const endDate = new Date(customDateRange.endDate + 'T00:00:00');
     return `${format(startDate, 'MMM dd')} - ${format(endDate, 'MMM dd, yyyy')}`;
   }
-    
-    switch (presetDateRange) {
-      case 'today': return 'Today';
-      case 'yesterday': return 'Yesterday';
-      case 'this_week': return 'This Week';
-      case 'this_month': return 'This Month';
-      case 'last_month': return 'Last Month';
-      case 'this_year': return 'This Year';
-      case 'last_30_days': return 'Last 30 Days';
-      default: return 'This Month';
-    }
-  };
+  
+  switch (presetDateRange) {
+    case 'today': return 'Today';
+    case 'yesterday': return 'Yesterday';
+    case 'this_week': return 'This Week';
+    case 'this_month': return 'This Month';
+    case 'last_month': return 'Last Month';
+    case 'this_year': return 'This Year';
+    case 'last_30_days': return 'Last 30 Days';
+    default: return 'This Month';
+  }
+};
 
   // Enhanced filtered users with better filtering and sorting
   const filteredUsers = users.filter(user => {
