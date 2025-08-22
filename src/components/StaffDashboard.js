@@ -9,8 +9,6 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsi
 import { format, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, subMonths } from 'date-fns';
 import { db } from '../utils/database';
 
-
-
 const StaffDashboard = () => {
   const [sessionStartTime, setSessionStartTime] = useState(null);
   const SESSION_TIMEOUT = 60 * 60 * 1000; // 1 hour in milliseconds
@@ -983,32 +981,6 @@ const getVolunteerHoursInDateRange = async (userId, filters) => {
     setSearchTerm('');
   };
 
-const createStaffAccount = async () => {
-  setLoading(true);
-  
-  try {
-    const result = await db.createStaffAccount(newStaffForm);
-    
-    if (result.success) {
-      alert(`Staff profile created successfully!\n\nNext Steps:\n1. Tell ${newStaffForm.fullName} to visit the login page\n2. Click "Forgot Password"\n3. Enter email: ${newStaffForm.email}\n4. Check email for password reset link\n5. Set password and log in\n\nThis creates a secure account without exposing temporary passwords.`);
-      
-      // Reset form
-      setNewStaffForm({
-        fullName: '',
-        email: '',
-        username: '',
-        role: 'staff'
-      });
-    }else {
-      alert(`Error: ${result.error}`);
-    }
-  } catch (error) {
-    console.error('Error creating staff account:', error);
-    alert('Unexpected error occurred. Please try again.');
-  }
-  
-  setLoading(false);
-};
 
   // Login Screen
   if (!isLoggedIn) {
