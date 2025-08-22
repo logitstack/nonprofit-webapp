@@ -8,6 +8,9 @@ import {
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { format, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, subMonths } from 'date-fns';
 import { db } from '../utils/database';
+import { UserPlus } from 'lucide-react';
+
+
 
 const StaffDashboard = () => {
   const [sessionStartTime, setSessionStartTime] = useState(null);
@@ -43,6 +46,13 @@ const StaffDashboard = () => {
   const [showExportModal, setShowExportModal] = useState(false);
   const [previewCount, setPreviewCount] = useState(0);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [newStaffForm, setNewStaffForm] = useState({
+  fullName: '',
+  email: '',
+  username: '',
+  role: 'staff'
+});
+  
   
   // Settings page state
   const [autoCheckoutSettings, setAutoCheckoutSettings] = useState({
@@ -979,6 +989,33 @@ const getVolunteerHoursInDateRange = async (userId, filters) => {
     setSearchTerm('');
   };
 
+const createStaffAccount = async () => {
+  setLoading(true);
+  
+  try {
+    const result = await db.createStaffAccount(newStaffForm);
+    
+    if (result.success) {
+      alert(`Staff profile created successfully!\n\nNext Steps:\n1. Tell ${newStaffForm.fullName} to visit the login page\n2. Click "Forgot Password"\n3. Enter email: ${newStaffForm.email}\n4. Check email for password reset link\n5. Set password and log in\n\nThis creates a secure account without exposing temporary passwords.`);
+      
+      // Reset form
+      setNewStaffForm({
+        fullName: '',
+        email: '',
+        username: '',
+        role: 'staff'
+      });
+    }else {
+      alert(`Error: ${result.error}`);
+    }
+  } catch (error) {
+    console.error('Error creating staff account:', error);
+    alert('Unexpected error occurred. Please try again.');
+  }
+  
+  setLoading(false);
+};
+
   // Login Screen
   if (!isLoggedIn) {
     return (
@@ -1102,6 +1139,17 @@ const getVolunteerHoursInDateRange = async (userId, filters) => {
                 <Settings className="h-4 w-4" />
                 Settings
               </button>
+              {currentUser.role === 'admin' && (
+              <button
+                onClick={() => setCurrentView('user_management')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${
+                  currentView === 'user_management' ? 'bg-indigo-100 text-indigo-700' : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                <UserPlus className="h-4 w-4" />
+                Manage Staff
+              </button>
+            )}
             </div>
           </nav>
         )}
@@ -1342,6 +1390,77 @@ const getVolunteerHoursInDateRange = async (userId, filters) => {
           </div>
         )}
 
+        {/* User Management View - Admin Only */}
+        {currentView === 'user_management' && currentUser.role === 'admin' && (
+          <div className="space-y-8">
+            <div className="bg-white rounded-xl shadow-sm p-6">
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">Staff Management</h2>
+              <p className="text-gray-600 mb-6">Create new staff accounts for VolunteerHub access</p>
+              
+              <div className="max-w-md space-y-4">
+                <input
+                  type="text"
+                  placeholder="Full Name *"
+                  value={newStaffForm.fullName}
+                  onChange={(e) => setNewStaffForm({...newStaffForm, fullName: e.target.value})}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                />
+                <input
+                  type="email"
+                  placeholder="Email Address *"
+                  value={newStaffForm.email}
+                  onChange={(e) => setNewStaffForm({...newStaffForm, email: e.target.value})}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                />
+                <input
+                  type="text"
+                  placeholder="Username *"
+                  value={newStaffForm.username}
+                  onChange={(e) => setNewStaffForm({...newStaffForm, username: e.target.value})}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                />
+                <select
+                  value={newStaffForm.role}
+                  onChange={(e) => setNewStaffForm({...newStaffForm, role: e.target.value})}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                >
+                  <option value="staff">Staff</option>
+                  <option value="admin">Admin</option>
+                </select>
+                <button
+                  onClick={createStaffAccount}
+                  disabled={loading || !newStaffForm.fullName || !newStaffForm.email || !newStaffForm.username}
+                  className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 text-white font-medium py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
+                >
+                  {loading ? (
+                    <>
+                      <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
+                      Creating Account...
+                    </>
+                  ) : (
+                    <>
+                      <UserPlus className="h-4 w-4" />
+                      Create Staff Profile
+                    </>
+                  )}
+                </button>
+              </div>
+              
+              <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <h4 className="font-medium text-blue-900 mb-2">Account Activation Process:</h4>
+                <ol className="text-sm text-blue-800 space-y-1">
+                  <li>1. Staff profile is created in the system</li>
+                  <li>2. Staff member visits the login page</li>
+                  <li>3. Clicks "Forgot Password" and enters their email</li>
+                  <li>4. Receives password reset email from Supabase</li>
+                  <li>5. Sets their password and gains access</li>
+                </ol>
+              </div>
+            </div>
+          </div>
+        )}
+
+        
         {/* Enhanced Dashboard View with Custom Date Selection */}
         {currentView === 'dashboard' && (
           <div className="space-y-8">

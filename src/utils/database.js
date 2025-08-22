@@ -1,4 +1,9 @@
+
+
 import { supabase } from '../config/supabase';
+console.log('Environment check:');
+console.log('REACT_APP_SUPABASE_URL:', process.env.REACT_APP_SUPABASE_URL);
+console.log('REACT_APP_SUPABASE_ANON_KEY exists:', !!process.env.REACT_APP_SUPABASE_ANON_KEY);
 
 class Database {
   constructor() {
@@ -818,6 +823,73 @@ async getVolunteersWithHoursInDateRange(startDate, endDate) {
       return null;
     }
   }
+
+ // In your database.js file, replace the createStaffAccount method:
+
+async createStaffAccount(staffData) {
+  try {
+    console.log('Supabase client URL:', supabase.supabaseUrl);
+    console.log('Environment URL:', process.env.REACT_APP_SUPABASE_URL);
+    console.log('Functions URL would be:', `${supabase.supabaseUrl}/functions/v1/`);
+    
+    // Get the current user's session token
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    if (!session) {
+      throw new Error('No active session');
+    }
+
+    console.log('Calling Edge Function with data:', staffData);
+    console.log('Session token exists:', !!session.access_token);
+
+    // Call the Edge Function
+    const response = await supabase.functions.invoke('create-staff-account', {
+      body: {
+        email: staffData.email,
+        fullName: staffData.fullName,
+        username: staffData.username,
+        role: staffData.role
+      },
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+      },
+    });
+
+    console.log('Full Edge Function response:', response);
+
+    if (response.error) {
+      console.error('Edge Function error:', response.error);
+      throw new Error(`Edge Function error: ${JSON.stringify(response.error)}`);
+    }
+
+    if (!response.data) {
+      throw new Error('No data returned from Edge Function');
+    }
+
+    return {
+      success: true,
+      message: response.data.message || 'Staff account created successfully',
+      requiresPasswordReset: true
+    };
+  } catch (error) {
+    console.error('Full error object:', error);
+    
+    // Try to extract a meaningful error message
+    let errorMessage = 'Failed to create staff account';
+    if (error.message) {
+      errorMessage = error.message;
+    } else if (error.details) {
+      errorMessage = error.details;
+    } else if (typeof error === 'string') {
+      errorMessage = error;
+    }
+    
+    return { 
+      success: false, 
+      error: errorMessage
+    };
+  }
+}
 
   async signParentWaiver(token, parentSignature) {
     try {
