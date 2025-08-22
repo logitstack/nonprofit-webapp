@@ -7,11 +7,9 @@ export default async function handler(req, res) {
   }
 
   // Verify the webhook secret from Supabase
-  const supabaseSecret = req.headers['x-supabase-signature'];
-  const expectedSecret = process.env.SUPABASE_WEBHOOK_SECRET;
-  
-  if (!supabaseSecret || supabaseSecret !== expectedSecret) {
-    return res.status(401).json({ error: 'Unauthorized' });
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Missing authorization header' });
   }
 
   try {
