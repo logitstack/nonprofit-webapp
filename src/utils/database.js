@@ -19,8 +19,38 @@ class Database {
       timezone: 'America/Chicago'
     };
   }
+async updateStaffPassword(newPassword) {
+  try {
+    const { error } = await supabase.auth.updateUser({
+      password: newPassword
+    });
 
-  async authenticateStaff(email, password) {
+    if (error) {
+      throw new Error('Failed to update password: ' + error.message);
+    }
+
+    // Mark first login as complete
+    if (this.currentStaffUser) {
+      const { error: profileError } = await supabase
+        .from('staff_profiles')
+        .update({ first_login: false })
+        .eq('id', this.currentStaffUser.id);
+
+      if (profileError) {
+        console.error('Error updating first_login flag:', profileError);
+      } else {
+        this.currentStaffUser.first_login = false;
+        this.currentStaffUser.requiresPasswordChange = false;
+      }
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error('Password update error:', error);
+    return { success: false, error: error.message };
+  }
+}
+async authenticateStaff(email, password) {
   try {
     const { data, error } = await supabase.auth.signInWithPassword({
       email: email,
@@ -44,7 +74,8 @@ class Database {
 
     this.currentStaffUser = {
       ...profile,
-      email: data.user.email
+      email: data.user.email,
+      requiresPasswordChange: profile.first_login // Flag for first login
     };
 
     return this.currentStaffUser;
@@ -826,70 +857,7 @@ async getVolunteersWithHoursInDateRange(startDate, endDate) {
 
  // In your database.js file, replace the createStaffAccount method:
 
-async createStaffAccount(staffData) {
-  try {
-    console.log('Supabase client URL:', supabase.supabaseUrl);
-    console.log('Environment URL:', process.env.REACT_APP_SUPABASE_URL);
-    console.log('Functions URL would be:', `${supabase.supabaseUrl}/functions/v1/`);
-    
-    // Get the current user's session token
-    const { data: { session } } = await supabase.auth.getSession();
-    
-    if (!session) {
-      throw new Error('No active session');
-    }
 
-    console.log('Calling Edge Function with data:', staffData);
-    console.log('Session token exists:', !!session.access_token);
-
-    // Call the Edge Function
-    const response = await supabase.functions.invoke('create-staff-account', {
-      body: {
-        email: staffData.email,
-        fullName: staffData.fullName,
-        username: staffData.username,
-        role: staffData.role
-      },
-      headers: {
-        Authorization: `Bearer ${session.access_token}`,
-      },
-    });
-
-    console.log('Full Edge Function response:', response);
-
-    if (response.error) {
-      console.error('Edge Function error:', response.error);
-      throw new Error(`Edge Function error: ${JSON.stringify(response.error)}`);
-    }
-
-    if (!response.data) {
-      throw new Error('No data returned from Edge Function');
-    }
-
-    return {
-      success: true,
-      message: response.data.message || 'Staff account created successfully',
-      requiresPasswordReset: true
-    };
-  } catch (error) {
-    console.error('Full error object:', error);
-    
-    // Try to extract a meaningful error message
-    let errorMessage = 'Failed to create staff account';
-    if (error.message) {
-      errorMessage = error.message;
-    } else if (error.details) {
-      errorMessage = error.details;
-    } else if (typeof error === 'string') {
-      errorMessage = error;
-    }
-    
-    return { 
-      success: false, 
-      error: errorMessage
-    };
-  }
-}
 
   async signParentWaiver(token, parentSignature) {
     try {

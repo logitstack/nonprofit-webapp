@@ -8,6 +8,7 @@ import {
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { format, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, subMonths } from 'date-fns';
 import { db } from '../utils/database';
+import { supabase } from '../config/supabase';
 
 const StaffDashboard = () => {
   const [sessionStartTime, setSessionStartTime] = useState(null);
@@ -43,8 +44,58 @@ const StaffDashboard = () => {
   const [showExportModal, setShowExportModal] = useState(false);
   const [previewCount, setPreviewCount] = useState(0);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [showPasswordChange, setShowPasswordChange] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({
+  currentPassword: '',
+  newPassword: '',
+  confirmPassword: ''
+  });
+  const [passwordLoading, setPasswordLoading] = useState(false);  
+  const [showFirstLoginModal, setShowFirstLoginModal] = useState(false);
+  const [firstLoginPassword, setFirstLoginPassword] = useState({
+    newPassword: '',
+    confirmPassword: ''
+  });
+
 
   
+
+  const handlePasswordChange = async () => {
+  if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+    alert('New passwords do not match');
+    return;
+  }
+
+  if (passwordForm.newPassword.length < 6) {
+    alert('Password must be at least 6 characters long');
+    return;
+  }
+
+  setPasswordLoading(true);
+  
+  try {
+    const { error } = await supabase.auth.updateUser({
+      password: passwordForm.newPassword
+    });
+
+    if (error) {
+      alert('Error updating password: ' + error.message);
+    } else {
+      alert('Password updated successfully!');
+      setShowPasswordChange(false);
+      setPasswordForm({
+        currentPassword: '',
+        newPassword: '',
+        confirmPassword: ''
+      });
+    }
+  } catch (error) {
+    console.error('Password update error:', error);
+    alert('Error updating password. Please try again.');
+  }
+  
+  setPasswordLoading(false);
+};
   
   // Settings page state
   const [autoCheckoutSettings, setAutoCheckoutSettings] = useState({
@@ -96,6 +147,7 @@ useEffect(() => {
   }
 }, [isLoggedIn, dashboardDateType, presetDateRange, customDateRange]);
 
+
 // Session timeout checking
 useEffect(() => {
   if (isLoggedIn && sessionStartTime) {
@@ -129,7 +181,49 @@ useEffect(() => {
   updatePreview();
 }, [exportFilters, users, showExportModal]);
 
+useEffect(() => {
+    if (isLoggedIn && currentUser?.requiresPasswordChange) {
+      setShowFirstLoginModal(true);
+    }
+  }, [isLoggedIn, currentUser]);
 
+
+const handleFirstLoginPasswordChange = async () => {
+    if (firstLoginPassword.newPassword !== firstLoginPassword.confirmPassword) {
+      alert('Passwords do not match');
+      return;
+    }
+
+    if (firstLoginPassword.newPassword.length < 8) {
+      alert('Password must be at least 8 characters long');
+      return;
+    }
+
+    setPasswordLoading(true);
+    
+    try {
+      const result = await db.updateStaffPassword(firstLoginPassword.newPassword);
+      
+      if (result.success) {
+        setShowFirstLoginModal(false);
+        setFirstLoginPassword({ newPassword: '', confirmPassword: '' });
+        alert('Password updated successfully! You can now use the system.');
+        
+        // Update current user state
+        setCurrentUser({
+          ...currentUser,
+          requiresPasswordChange: false
+        });
+      } else {
+        alert('Error updating password: ' + result.error);
+      }
+    } catch (error) {
+      console.error('Password update error:', error);
+      alert('Error updating password. Please try again.');
+    }
+    
+    setPasswordLoading(false);
+  };
   const loadAutoCheckoutSettings = async () => {
     try {
       const settings = await db.getAutoCheckoutSettings();
@@ -374,7 +468,8 @@ const handleLogin = async () => {
       setCurrentUser({
         name: staffUser.full_name,
         role: staffUser.role,
-        username: staffUser.username
+        username: staffUser.username,
+        requiresPasswordChange: staffUser.requiresPasswordChange
       });
       setIsLoggedIn(true);
       setLoginForm({ username: '', password: '' });
@@ -998,8 +1093,8 @@ const getVolunteerHoursInDateRange = async (userId, filters) => {
           
           <div className="space-y-4">
             <input
-              type="text"
-              placeholder="Username"
+              type="email"
+              placeholder="Email Address"  // <-- Updated placeholder
               value={loginForm.username}
               onChange={(e) => setLoginForm({...loginForm, username: e.target.value})}
               className="w-full p-4 border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:outline-none"
@@ -1023,6 +1118,87 @@ const getVolunteerHoursInDateRange = async (userId, filters) => {
       </div>
     );
   }
+if (isLoggedIn && showFirstLoginModal) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-8">
+          <div className="text-center mb-6">
+            <div className="w-16 h-16 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Settings className="h-8 w-8 text-yellow-600" />
+            </div>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Welcome to VolunteerHub!</h2>
+            <p className="text-gray-600">Please set a new password for your account</p>
+          </div>
+          
+          <div className="space-y-4 mb-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                New Password *
+              </label>
+              <input
+                type="password"
+                value={firstLoginPassword.newPassword}
+                onChange={(e) => setFirstLoginPassword({
+                  ...firstLoginPassword, 
+                  newPassword: e.target.value
+                })}
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                placeholder="Enter new password"
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Confirm New Password *
+              </label>
+              <input
+                type="password"
+                value={firstLoginPassword.confirmPassword}
+                onChange={(e) => setFirstLoginPassword({
+                  ...firstLoginPassword, 
+                  confirmPassword: e.target.value
+                })}
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                placeholder="Confirm new password"
+              />
+            </div>
+            
+            <div className="text-sm text-gray-600 bg-blue-50 p-3 rounded-lg">
+              <ul className="space-y-1">
+                <li>• Password must be at least 8 characters long</li>
+                <li>• Use a mix of letters, numbers, and symbols</li>
+                <li>• This will be your permanent login password</li>
+              </ul>
+            </div>
+          </div>
+          
+          <button
+            onClick={handleFirstLoginPasswordChange}
+            disabled={
+              passwordLoading || 
+              !firstLoginPassword.newPassword || 
+              !firstLoginPassword.confirmPassword
+            }
+            className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 text-white font-medium py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
+          >
+            {passwordLoading ? (
+              <>
+                <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
+                Setting Password...
+              </>
+            ) : (
+              'Set Password & Continue'
+            )}
+          </button>
+          
+          <p className="text-xs text-gray-500 text-center mt-4">
+            You cannot access the system until you set a new password
+          </p>
+        </div>
+      </div>
+    );
+  }
+
 
   // Main Dashboard
   return (
@@ -1043,6 +1219,13 @@ const getVolunteerHoursInDateRange = async (userId, filters) => {
             </div>
             <div className="flex items-center gap-4">
               <span className="text-sm text-gray-600">Welcome, {currentUser.name}</span>
+              <button
+              onClick={() => setShowPasswordChange(true)}
+              className="flex items-center gap-2 text-gray-600 hover:text-gray-900 text-sm"
+            >
+              <Settings className="h-4 w-4" />
+              Change Password
+            </button>
               <button
                 onClick={() => setIsLoggedIn(false)}
                 className="flex items-center gap-2 text-gray-600 hover:text-gray-900"
@@ -2440,6 +2623,78 @@ const getVolunteerHoursInDateRange = async (userId, filters) => {
           </div>
         </div>
       )}
+
+      {showPasswordChange && (
+  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+    <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+      <div className="p-6 border-b border-gray-200">
+        <h3 className="text-lg font-semibold text-gray-900">Change Password</h3>
+      </div>
+      
+      <div className="p-6 space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            New Password *
+          </label>
+          <input
+            type="password"
+            value={passwordForm.newPassword}
+            onChange={(e) => setPasswordForm({...passwordForm, newPassword: e.target.value})}
+            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+            placeholder="Enter new password"
+          />
+        </div>
+        
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Confirm New Password *
+          </label>
+          <input
+            type="password"
+            value={passwordForm.confirmPassword}
+            onChange={(e) => setPasswordForm({...passwordForm, confirmPassword: e.target.value})}
+            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+            placeholder="Confirm new password"
+          />
+        </div>
+        
+        <div className="text-sm text-gray-600">
+          Password must be at least 6 characters long.
+        </div>
+      </div>
+      
+      <div className="p-6 border-t border-gray-200 flex gap-3">
+        <button
+          onClick={() => {
+            setShowPasswordChange(false);
+            setPasswordForm({
+              currentPassword: '',
+              newPassword: '',
+              confirmPassword: ''
+            });
+          }}
+          className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-4 rounded-lg transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={handlePasswordChange}
+          disabled={passwordLoading || !passwordForm.newPassword || !passwordForm.confirmPassword}
+          className="flex-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
+        >
+          {passwordLoading ? (
+            <>
+              <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
+              Updating...
+            </>
+          ) : (
+            'Update Password'
+          )}
+        </button>
+      </div>
+    </div>
+  </div>
+)}
     </div>
   );
 };
