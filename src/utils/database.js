@@ -1,9 +1,7 @@
 
 
 import { supabase } from '../config/supabase';
-console.log('Environment check:');
-console.log('REACT_APP_SUPABASE_URL:', process.env.REACT_APP_SUPABASE_URL);
-console.log('REACT_APP_SUPABASE_ANON_KEY exists:', !!process.env.REACT_APP_SUPABASE_ANON_KEY);
+
 
 class Database {
   constructor() {
@@ -19,6 +17,8 @@ class Database {
       timezone: 'America/Chicago'
     };
   }
+
+
 async updateStaffPassword(newPassword) {
   try {
     const { error } = await supabase.auth.updateUser({
@@ -85,9 +85,44 @@ async authenticateStaff(email, password) {
   }
 }
 
-  getCurrentStaffUser() {
+ // Replace your existing getCurrentStaffUser method in database.js
+async getCurrentStaffUser() {
+  try {
+    // Check current Supabase auth status
+    const { data: { user }, error } = await supabase.auth.getUser();
+    
+    if (error || !user) {
+      this.currentStaffUser = null;
+      return null;
+    }
+    
+    // Verify this user is still in staff_profiles
+    const { data: staffProfile, error: profileError } = await supabase
+      .from('staff_profiles')
+      .select('*')
+      .eq('id', user.id)
+      .single();
+    
+    if (profileError || !staffProfile) {
+      this.currentStaffUser = null;
+      return null;
+    }
+    
+    // Update cached staff user with current data
+    this.currentStaffUser = {
+      ...staffProfile,
+      email: user.email,
+      requiresPasswordChange: staffProfile.first_login
+    };
+    
     return this.currentStaffUser;
+    
+  } catch (error) {
+    console.error('Error checking current staff user:', error);
+    this.currentStaffUser = null;
+    return null;
   }
+}
 
   logout() {
   supabase.auth.signOut();

@@ -1,26 +1,60 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Package, Settings, Clock, Bell, Shield } from 'lucide-react';
+import { Users, Package, Settings, Clock, Bell, Shield, LogOut } from 'lucide-react';
 import DonorCheckin from './DonorCheckin';
 import VolunteerCheckin from './VolunteerCheckin';
 import StaffDashboard from './StaffDashboard';
+import StaffLoginWall from './StaffLoginWall';
 import { db } from '../utils/database';
 
 const UnifiedApp = () => {
   const [currentInterface, setCurrentInterface] = useState('home');
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [staffAuthenticated, setStaffAuthenticated] = useState(false);
+  const [checkingAuth, setCheckingAuth] = useState(true);
 
   // Update time every minute
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(new Date());
-    }, 60000); // Check every minute
-
+    }, 60000);
     return () => clearInterval(timer);
   }, []);
+
+  // Check existing authentication on load
+  useEffect(() => {
+    const checkExistingAuth = async () => {
+      const currentStaff = await db.getCurrentStaffUser();
+      setStaffAuthenticated(!!currentStaff);
+      setCheckingAuth(false);
+    };
+    
+    checkExistingAuth();
+  }, []);
+
+  // Logout handler
+  const handleLogout = async () => {
+    await db.logout();
+    setStaffAuthenticated(false);
+    setCurrentInterface('home');
+  };
 
   const formatTime = (date) => {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
+
+  // Show loading while checking authentication
+  if (checkingAuth) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="animate-spin h-8 w-8 border-2 border-indigo-600 border-t-transparent rounded-full"></div>
+      </div>
+    );
+  }
+
+  // Show login wall if not authenticated
+  if (!staffAuthenticated) {
+    return <StaffLoginWall onLogin={() => setStaffAuthenticated(true)} />;
+  }
 
   // Home/Navigation Interface
   if (currentInterface === 'home') {
@@ -41,6 +75,13 @@ const UnifiedApp = () => {
               </div>
               <div className="flex items-center gap-4">
                 <span className="text-sm text-gray-600">{formatTime(currentTime)}</span>
+                <button
+                  onClick={handleLogout}
+                  className="flex items-center gap-2 text-red-600 hover:text-red-800 font-medium"
+                >
+                  <LogOut className="h-4 w-4" />
+                  Logout
+                </button>
               </div>
             </div>
           </div>
@@ -311,6 +352,13 @@ const UnifiedApp = () => {
 
               <div className="flex items-center gap-4">
                 <span className="text-sm text-gray-600">{formatTime(currentTime)}</span>
+                <button
+                  onClick={handleLogout}
+                  className="flex items-center gap-2 text-red-600 hover:text-red-800 font-medium"
+                >
+                  <LogOut className="h-4 w-4" />
+                  Logout
+                </button>
               </div>
             </div>
           </div>
